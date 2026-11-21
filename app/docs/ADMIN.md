@@ -105,3 +105,12 @@ Better explanations make better answers, so keep the explanation, steps and shor
 - **Copy check:** review pairs with identical wrong answers and shared devices or networks. Open both attempts before deciding. Use Integrity to exclude an attempt from leaderboards.
 - **Import students:** download the template, fill it, Check the sheet, then Create. Re-running the same file is safe.
 - **Data and backup:** export CSVs; set backup frequency and number of copies; copy backups off the server regularly.
+
+## v12: Control room
+The admin menu is grouped (Students, Tests and content, Insights, Communicate, Server and control). Everything below is admin-only.
+- **Control room > Switches:** maintenance mode (Off, Pause tests, Lock out), sign-up rules (close sign-ups or allow only some email domains), feature switches (practice, invite rewards, parent links, notebook) and blocked network addresses. Changes apply within seconds. You cannot block your own address.
+- **Control room > Background jobs:** reminders, broadcasts, campaigns, backup and tidy-up. Run any now or pause it (until restart). **Settings file** downloads or imports branding, limits and rules between servers; keys are never included.
+- **Monitoring:** students online, requests per second, server load, memory, response times, errors and the slowest endpoints. Refreshes every 10 s. Counters restart with the server.
+- **Security:** sign-in log (90 days) with failures and noisy addresses, admin/staff list, sign out all students or everyone else.
+- **Integrations:** shows email, SMS, WhatsApp, browser push and AI as connected or not, and sends a test email.
+- **Users:** tick students for bulk Suspend, Reactivate or Sign out. **Overview** shows a strip of things that need attention (maintenance on, errors, failed sign-ins, stale backup, paused jobs, low disk).

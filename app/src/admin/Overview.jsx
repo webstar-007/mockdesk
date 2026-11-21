@@ -1,7 +1,14 @@
 import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { Badge, Bars, Empty, Err, Loading, PageHead, Stat, ago, dayLabel, statusTone, toast, useLoad } from './ui.jsx';
 
+function Attention() {
+  const [items, set] = useState([]);
+  useEffect(() => { const f = () => api.get('/admin/attention').then((d) => set(d.items)).catch(() => {}); f(); const t = setInterval(f, 30000); return () => clearInterval(t); }, []);
+  if (!items.length) return null;
+  return <div className="ad-attn" role="status">{items.map((i) => <Link key={i.text} to={`/admin/${i.to}`} className={`l-${i.level}`}>{i.text}</Link>)}</div>;
+}
 export default function Overview() {
   const { data: d, err, loading, reload } = useLoad('/admin/overview');
   const { data: al, reload: reloadAl } = useLoad('/admin/alerts');
@@ -15,6 +22,7 @@ export default function Overview() {
   const todo = [t.openReports > 0 && { tone: 'warn', to: '/admin/reports', text: `${t.openReports} student report${t.openReports > 1 ? 's' : ''} to review` }, d.flagged.length > 0 && { tone: 'bad', to: '/admin/bank', text: `${d.flagged.length} question${d.flagged.length > 1 ? 's' : ''} almost nobody answers correctly` }, t.mocksDraft > 0 && { tone: 'warn', to: '/admin/mocks', text: `${t.mocksDraft} draft mock${t.mocksDraft > 1 ? 's' : ''} not yet published` }, t.suspended > 0 && { tone: 'mute', to: '/admin/users', text: `${t.suspended} suspended account${t.suspended > 1 ? 's' : ''}` }, t.liveNow > 0 && { tone: 'good', to: '/admin/live', text: `${t.liveNow} student${t.liveNow > 1 ? 's are' : ' is'} taking a test right now` }].filter(Boolean);
   return (
     <>
+      <Attention />
       <PageHead title="Overview" sub="Everything happening on the platform, at a glance."><button className="btn btn-ghost" onClick={reload}>↻ Refresh</button><Link className="btn btn-primary" to="/admin/mocks">＋ New mock</Link></PageHead>
       <div className="ad-grid g-main" style={{ marginBottom: 14 }}>
         <section className="card"><h3>Needs your attention</h3>{todo.length ? <ul className="plain" style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 8 }}>{todo.map((x) => <li key={x.text}><Link to={x.to} style={{ textDecoration: 'none' }}><span className={`ad-badge b-${x.tone}`}>{x.tone === 'good' ? 'live' : x.tone === 'mute' ? 'info' : 'action'}</span> {x.text} →</Link></li>)}</ul> : <p className="muted" style={{ margin: 0 }}>✓ All clear. Nothing needs you right now.</p>}</section>

@@ -38,6 +38,10 @@ Use the **mockdesk-oneclick** kit. Copy this project's files into its `app/` fol
 | Exams, mocks, questions | Admin > Exams, Mocks, Question editor, Content tools |
 | Who is admin, staff or teacher | Admin > Users |
 | Messages, reminders, WhatsApp rules, quiet hours | Admin > Notifications and Messages |
+| Maintenance mode, sign-up rules, feature switches, blocked addresses, background jobs | Admin > Control room |
+| Live traffic, server load, errors | Admin > Monitoring |
+| Sign-in log, sign out everyone | Admin > Security |
+| What is connected (email, SMS, WhatsApp, AI), test email | Admin > Integrations |
 | Backups and CSV exports | Admin > Data and backup |
 | Secrets and provider keys (email, SMS, WhatsApp, AI) | Environment variables, see `.env.example` |
 

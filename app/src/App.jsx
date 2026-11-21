@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './lib/auth.jsx';
 import Header from './components/Header.jsx';
 import TipLayer from './components/Tip.jsx';
 import AnnouncementBar from './components/AnnouncementBar.jsx';
+import { useSite } from './lib/site.js';
 
 const Landing = lazy(() => import('./pages/Landing.jsx'));
 const AuthPage = lazy(() => import('./pages/AuthPage.jsx'));
@@ -22,23 +23,29 @@ const Toolkit = lazy(() => import('./pages/Toolkit.jsx'));
 const AdminApp = lazy(() => import('./admin/AdminApp.jsx'));
 const TeacherApp = lazy(() => import('./teacher/TeacherApp.jsx'));
 
+function Maintenance({ message, logout }) {
+  return <div className="center-page maint" role="alert"><h1>We will be right back</h1><p>{message || 'MockDesk is down for maintenance. Please come back soon.'}</p><button className="btn btn-ghost" onClick={() => window.location.reload()}>Check again</button> <button className="btn btn-ghost" onClick={logout}>Sign out</button></div>;
+}
 function Guard() {
-  const { user } = useAuth(); const loc = useLocation();
+  const { user, logout } = useAuth(); const loc = useLocation(); const site = useSite();
+  if (site.maintenance === 'hard' && user && !['admin', 'editor'].includes(user.role)) return <Maintenance message={site.maintenanceMessage} logout={logout} />;
   if (user === undefined) return <div className="center-page" role="status"><span className="spin" aria-hidden="true" />Loading…</div>;
   if (!user) return <Navigate to="/login" replace state={{ from: loc.pathname }} />;
   if ((user.role === 'admin' || user.role === 'editor') && !loc.pathname.startsWith('/admin')) return <Navigate to="/admin" replace />;
   if (user.role === 'teacher' && !loc.pathname.startsWith('/teacher')) return <Navigate to="/teacher" replace />;
   return <Outlet />;
 }
-const Shell = ({ children }) => (<><a className="skip" href="#main">Skip to content</a><Header /><AnnouncementBar /><div className="shell" id="main">{children ?? <Outlet />}<footer className="site-foot"><span><b>MockDesk</b> · Online mock tests for government exams</span><span><Link to="/">Dashboard</Link><Link to="/profile">Profile</Link></span></footer></div></>);
+const SoftNotice = () => { const s = useSite(); return s.maintenance === 'soft' ? <div className="maint-bar" role="status">{s.maintenanceMessage || 'Tests are paused for a short while. You can still look at your results.'}</div> : null; };
+const Shell = ({ children }) => (<><a className="skip" href="#main">Skip to content</a><Header /><SoftNotice /><AnnouncementBar /><div className="shell" id="main">{children ?? <Outlet />}<footer className="site-foot"><span><b>MockDesk</b> · Online mock tests for government exams</span><span><Link to="/">Dashboard</Link><Link to="/profile">Profile</Link></span></footer></div></>);
 
 // "/" is public: visitors see the landing page, signed-in students see their dashboard.
 function Root() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth(); const site = useSite();
   if (user === undefined) return <div className="center-page" role="status">Loading…</div>;
   if (!user) return <Landing />;
   if (user.role === 'admin' || user.role === 'editor') return <Navigate to="/admin" replace />;
   if (user.role === 'teacher') return <Navigate to="/teacher" replace />;
+  if (site.maintenance === 'hard') return <Maintenance message={site.maintenanceMessage} logout={logout} />;
   return <Shell><Dashboard /></Shell>;
 }
 

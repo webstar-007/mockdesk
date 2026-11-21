@@ -93,3 +93,13 @@ Admin: `GET /api/admin/cohorts`, `POST /api/admin/cohorts/nudge` (`{segment,titl
 - `GET /admin/backups`, `PUT /admin/backups/config`, `POST /admin/backups`, `GET|DELETE /admin/backups/:name` (admin only).
 - `GET /admin/export` and `GET /admin/export/:kind` (students, results, answers, questions, audit).
 - Header `X-Device-Id` on requests; stored on attempts at start.
+
+## v12 (admin only)
+- `GET|PUT /admin/controls` maintenance `{mode, message}`, signups `{open, domains, message}`, features, blockedIps.
+- `GET /admin/security?only=failed`, `POST /admin/security/sign-out-all {who:'students'|'everyone'}`, `POST /admin/security/clear-log`.
+- `GET /admin/monitor?minutes`, `POST /admin/monitor/reset`.
+- `GET /admin/jobs`, `POST /admin/jobs/:name/run`, `PUT /admin/jobs/:name {paused}`.
+- `GET /admin/integrations`, `POST /admin/integrations/test-email {to}`.
+- `GET /admin/attention`, `POST /admin/users/bulk {ids, action: suspend|activate|sign-out}`.
+- `GET /admin/config/export`, `POST /admin/config/import`.
+- Students get `503 {code:'MAINTENANCE'}` or `403 {code:'FEATURE_OFF'}`; `/public/site` includes `maintenance`, `maintenanceMessage`, `signupsOpen`, `features`.

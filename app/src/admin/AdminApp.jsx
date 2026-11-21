@@ -38,11 +38,24 @@ import { useSite } from '../lib/site.js';
 const Anomalies = lazy(() => import('./Anomalies.jsx'));
 const ImportStudents = lazy(() => import('./ImportStudents.jsx'));
 const DataBackup = lazy(() => import('./DataBackup.jsx'));
+const ControlRoom = lazy(() => import('./ControlRoom.jsx'));
+const Monitoring = lazy(() => import('./Monitoring.jsx'));
+const Security = lazy(() => import('./Security.jsx'));
+const Integrations = lazy(() => import('./Integrations.jsx'));
 
 const NAV = [
   ['', 'Overview', '▦', true], ['ask', 'Ask your data', '💬'], ['live', 'Live tests', '🟢'], ['users', 'Users', '👥'], ['attempts', 'Attempts', '✎'], ['integrity', 'Integrity', '🛡'], ['anomalies', 'Copy check', '👯'],
   ['cohorts', 'Cohorts', '📈'],
-  ['exams', 'Exams', '🎓'], ['mocks', 'Mocks', '🗂'], ['bank', 'Question bank', '❓'], ['content', 'Content tools', '📥'], ['quality', 'Question quality', '✅'], ['coverage', 'Coverage', '🧭'], ['batches', 'Batches', '🏫'], ['import-students', 'Import students', '📋'], ['announcements', 'Announcements', '📢'], ['messages', 'Messages', '✉'], ['notifications', 'Notifications', '🔔'], ['referrals', 'Referrals', '🎁'], ['analytics', 'Analytics', '📈'], ['reports', 'Reports', '🚩'], ['data', 'Data and backup', '💾'], ['system', 'System', '🩺'], ['settings', 'Settings', '⚙'],
+  ['exams', 'Exams', '🎓'], ['mocks', 'Mocks', '🗂'], ['bank', 'Question bank', '❓'], ['content', 'Content tools', '📥'], ['quality', 'Question quality', '✅'], ['coverage', 'Coverage', '🧭'], ['batches', 'Batches', '🏫'], ['import-students', 'Import students', '📋'], ['announcements', 'Announcements', '📢'], ['messages', 'Messages', '✉'], ['notifications', 'Notifications', '🔔'], ['referrals', 'Referrals', '🎁'], ['analytics', 'Analytics', '📈'], ['reports', 'Reports', '🚩'], ['data', 'Data and backup', '💾'], ['control', 'Control room', '🎛'], ['monitor', 'Monitoring', '📡'], ['security', 'Security', '🔒'], ['integrations', 'Integrations', '🔌'], ['system', 'System', '🩺'], ['settings', 'Settings', '⚙'],
+];
+// The menu is grouped so admins find things by job, not by a long list.
+const GROUPS = [
+  [null, ['']],
+  ['Students', ['users', 'import-students', 'batches', 'cohorts', 'referrals', 'live', 'attempts']],
+  ['Tests and content', ['exams', 'mocks', 'bank', 'content', 'quality', 'coverage', 'reports']],
+  ['Insights', ['ask', 'analytics', 'integrity', 'anomalies']],
+  ['Communicate', ['announcements', 'messages', 'notifications']],
+  ['Server and control', ['control', 'monitor', 'security', 'integrations', 'system', 'data', 'settings']],
 ];
 
 export default function AdminApp() {
@@ -59,7 +72,10 @@ export default function AdminApp() {
       <aside className="ad-side">
         <Link to="/admin" className="ad-brand"><span className="brand-mark" aria-hidden="true">✓</span><span>{site.name}<small>{editor ? 'Staff' : 'Admin'}</small></span></Link>
         <nav className="ad-nav" aria-label="Admin">
-          {nav.map(([to, label, ico, end]) => <NavLink key={to} to={`/admin${to ? '/' + to : ''}`} end={!!end}><span className="ico" aria-hidden="true">{ico}</span>{label}{to === 'reports' && open > 0 && <span className="cnt">{open}</span>}</NavLink>)}
+          {GROUPS.map(([head, keys]) => { const items = keys.map((k) => nav.find((n) => n[0] === k)).filter(Boolean); if (!items.length) return null; return (
+            <div className="ad-grp" key={head || 'top'}>{head && <p className="ad-grp-h">{head}</p>}
+              {items.map(([to, label, ico, end]) => <NavLink key={to} to={`/admin${to ? '/' + to : ''}`} end={!!end}><span className="ico" aria-hidden="true">{ico}</span>{label}{to === 'reports' && open > 0 && <span className="cnt">{open}</span>}</NavLink>)}
+            </div>); })}
         </nav>
         <div className="ad-side-foot"><span>Signed in as <b>{user.name}</b><br /><small>{user.email}</small></span><button className="btn btn-ghost btn-sm" onClick={logout} style={{ color: '#fff', borderColor: 'rgba(255,255,255,.3)', background: 'transparent' }}>Sign out</button></div>
       </aside>
@@ -84,6 +100,10 @@ export default function AdminApp() {
             <Route path="data" element={<DataBackup />} />
             <Route path="coverage" element={<Coverage />} />
             <Route path="system" element={<System />} />
+            <Route path="control" element={<ControlRoom />} />
+            <Route path="monitor" element={<Monitoring />} />
+            <Route path="security" element={<Security />} />
+            <Route path="integrations" element={<Integrations />} />
             <Route path="bank" element={<Bank />} />
             <Route path="analytics" element={<Analytics />} />
             <Route path="reports" element={<Reports />} />

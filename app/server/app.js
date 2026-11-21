@@ -1,7 +1,11 @@
+import { broadcastDue } from './adminExtras.js';
+import { runCampaigns } from './campaigns.js';
 import { limitsOf, siteOf } from './lib/site.js';
 import compression from 'compression';
 import { permsOf } from './lib/perms.js';
-import { recordError } from './lib/health.js';
+import { recordError, recentErrors } from './lib/health.js';
+import { makeControlsCache, makeMetrics, makeJobs, ipBlocked, emailAllowed } from './lib/controls.js';
+import { runBackup } from './ops.js';
 import { answerDoubt } from './lib/doubts.js';
 import { plainSummary } from './lib/summary.js';
 import express from 'express';
@@ -60,6 +64,10 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
   db.prepare("INSERT OR IGNORE INTO mocks(id,number,name,difficulty,description,status,tags,source,created_at,updated_at) VALUES ('practice',0,'Practice set','moderate','Personalised practice (hidden)','archived','[]','practice',?,?)").run(now(), now());
   const exams = makeExams(db);
   const settings = makeSettings(db);
+  const controls = makeControlsCache(settings, now); const metrics = makeMetrics(now); const jobs = makeJobs(now);
+  app.jobs = jobs; app.metrics = metrics;
+  app.use('/api', metrics.middleware);
+  app.use('/api', (req, res, next) => (ipBlocked(req.ip, controls().blockedIps) ? res.status(403).json({ error: 'Access from this network is blocked.', code: 'BLOCKED' }) : next()));
   const notifier = createNotifier({ db, now, settings, mailer, pusher: makePusher(settings), whatsapp });
   const cache = new Map();
   const invalidate = () => { cache.clear(); snaps.clear(); };
@@ -107,7 +115,13 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
   // ---------- auth ----------
   const cookieOf = (req) => Object.fromEntries((req.headers.cookie || '').split(';').map((c) => c.trim().split('=')).filter((p) => p[0]).map(([k, ...v]) => [k, decodeURIComponent(v.join('='))]));
   const publicUser = (u) => ({ perms: u.role === 'editor' ? permsOf(u) : undefined, role: u.role || 'student', id: u.id, name: u.name, email: u.email, phone: u.phone || null, targetScore: u.target_score, examDate: u.exam_date, createdAt: u.created_at });
+  const logLogin = (req, userId, ok, who, note = '') => { try {
+    const m = /otp/.test(req?.path || '') ? 'code' : /register/.test(req?.path || '') ? 'sign-up' : 'password';
+    db.prepare('INSERT INTO login_log(at,user_id,who,ok,method,ip,ua,note) VALUES (?,?,?,?,?,?,?,?)').run(now(), userId || null, String(who || '').slice(0, 120), ok ? 1 : 0, m, req?.ip || null, String(req?.headers?.['user-agent'] || '').slice(0, 160), note.slice(0, 120));
+    if (Math.random() < 0.02) db.prepare('DELETE FROM login_log WHERE at<?').run(now() - 90 * 86400000);
+  } catch { /* logging must never block a sign-in */ } };
   function startSession(res, userId, remember = true) {
+    if (res.req) logLogin(res.req, userId, true, db.prepare('SELECT COALESCE(email,phone) w FROM users WHERE id=?').get(userId)?.w);
     const sid = crypto.randomBytes(32).toString('hex'); const ms = remember ? SESSION_MS : SHORT_SESSION_MS;
     db.prepare('INSERT INTO sessions VALUES (?,?,?)').run(sid, userId, now() + ms);
     res.setHeader('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Lax; Path=/${remember ? `; Max-Age=${ms / 1000}` : ''}${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
@@ -122,6 +136,7 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
   }
   if (process.env.MOCKDESK_TRUST_PROXY) app.set('trust proxy', 1); // set when a proxy such as Caddy or Nginx sits in front
   const api = express.Router();
+  const signupBlock = (email) => { const c = controls(); if (c.maintenance.mode === 'hard') return 'The site is under maintenance. Please try again later.'; if (!c.signups.open) return c.signups.message || 'New sign-ups are closed right now.'; if (email && !emailAllowed(email, c)) return c.signups.message || `Sign-ups are limited to ${c.signups.domains.map((d) => '@' + d).join(', ')} email addresses.`; return ''; };
   const attempts = new Map(); // simple in-memory rate limit for auth
   const limited = (req, res) => {
     const k = req.ip; const t = now(); const a = (attempts.get(k) || []).filter((x) => t - x < 60000);
@@ -137,6 +152,7 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
     if (!/^\S+@\S+\.\S+$/.test(email || '')) return res.status(400).json({ error: 'Enter a valid email' });
     if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
     const mail = email.trim().toLowerCase();
+    { const e = signupBlock(mail); if (e) return res.status(403).json({ error: e, code: 'SIGNUPS_CLOSED' }); }
     if (db.prepare('SELECT 1 FROM users WHERE email=?').get(mail)) return res.status(409).json({ error: 'An account with this email already exists' });
     const salt = crypto.randomBytes(16).toString('hex');
     const r = db.prepare('INSERT INTO users(name,email,salt,hash,created_at) VALUES (?,?,?,?,?)').run(String(name).trim().slice(0, 80), mail, salt, hashPw(password, salt), iso(now()));
@@ -149,9 +165,9 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
     const { email, password } = req.body || {};
     promote();
     const u = db.prepare('SELECT * FROM users WHERE email=?').get(String(email || '').trim().toLowerCase());
-    if (!u) return res.status(404).json({ error: 'No account found with this email. Create an account first.', code: 'NO_ACCOUNT' });
+    if (!u) { logLogin(req, null, false, email, 'no account'); return res.status(404).json({ error: 'No account found with this email. Create an account first.', code: 'NO_ACCOUNT' }); }
     const ok = u && u.hash && crypto.timingSafeEqual(Buffer.from(hashPw(String(password || ''), u.salt), 'hex'), Buffer.from(u.hash, 'hex'));
-    if (!ok) return res.status(401).json({ error: 'Incorrect email or password' });
+    if (!ok) { logLogin(req, u.id, false, u.email, 'wrong password'); return res.status(401).json({ error: 'Incorrect email or password' }); }
     if (u.status === 'suspended') return res.status(403).json({ error: 'This account has been suspended. Contact the administrator.', code: 'SUSPENDED' });
     startSession(res, u.id, req.body?.remember !== false);
     res.json({ user: publicUser(u) });
@@ -184,12 +200,13 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
     if (!row || row.expires_at < now()) { if (row) db.prepare('DELETE FROM otps WHERE key=?').run(key); return res.status(400).json({ error: 'This code has expired. Ask for a new one.', code: 'EXPIRED' }); }
     if (!codeMatches(code, row.salt, row.code_hash)) {
       if (row.wrong + 1 >= OTP_MAX_WRONG) { db.prepare('DELETE FROM otps WHERE key=?').run(key); return res.status(429).json({ error: 'Too many wrong codes. Ask for a new one.', code: 'LOCKED' }); }
-      db.prepare('UPDATE otps SET wrong=wrong+1 WHERE key=?').run(key);
+      db.prepare('UPDATE otps SET wrong=wrong+1 WHERE key=?').run(key); logLogin(req, null, false, id, 'wrong code');
       return res.status(401).json({ error: `Incorrect code. ${OTP_MAX_WRONG - row.wrong - 1} tries left.` });
     }
     const col = channel === 'email' ? 'email' : 'phone';
     let u = db.prepare(`SELECT * FROM users WHERE ${col}=?`).get(id), isNew = false;
     const given = String(req.body?.name || '').trim().slice(0, 80);
+    if (!u) { const e = signupBlock(channel === 'email' ? id : ''); if (e) return res.status(403).json({ error: e, code: 'SIGNUPS_CLOSED' }); }
     if (!u && !given) return res.status(400).json({ error: 'No account exists for this yet. Enter your name to create one, or go to Sign up.', code: 'NAME_REQUIRED' });
     db.prepare('UPDATE otps SET code_hash=?, expires_at=0 WHERE key=?').run('', key); // single use
     if (!u) {
@@ -225,7 +242,7 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
   let pubCache = { at: 0, body: null };
   mountSharePublic(api, { db, now });
   setTimezone(limitsOf(settings).timezone);
-  api.get('/public/site', (req, res) => { const s = siteOf(settings); res.setHeader('Cache-Control', 'public, max-age=60'); res.json({ name: s.name, tagline: s.tagline, heroTitle: s.heroTitle, heroText: s.heroText, supportEmail: s.supportEmail, supportPhone: s.supportPhone, disclaimer: s.disclaimer, faq: s.faq }); });
+  api.get('/public/site', (req, res) => { const s = siteOf(settings); res.setHeader('Cache-Control', 'public, max-age=60'); res.json({ name: s.name, tagline: s.tagline, heroTitle: s.heroTitle, heroText: s.heroText, supportEmail: s.supportEmail, supportPhone: s.supportPhone, disclaimer: s.disclaimer, faq: s.faq, maintenance: controls().maintenance.mode, maintenanceMessage: controls().maintenance.message, signupsOpen: controls().signups.open, signupDomains: controls().signups.domains, features: controls().features }); });
   api.get('/public/overview', (req, res) => {
     if (!pubCache.body || Date.now() - pubCache.at > 60000) {
       const mocks = [];
@@ -262,6 +279,19 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
     res.type('html').send('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:system-ui;max-width:32rem;margin:4rem auto;padding:0 1rem"><h1>You are unsubscribed</h1><p>We will not email you reminders any more. You can switch them back on in your profile.</p><p><a href="/">Back to MockDesk</a></p>');
   });
   api.use(auth);
+  api.use((req, res, next) => { // maintenance mode and feature switches apply to students and teachers; staff always get through
+    if (['admin', 'editor'].includes(req.user.role)) return next();
+    const c = controls(); const m = c.maintenance;
+    const msg = m.message || 'MockDesk is down for maintenance. Please come back soon.';
+    if (m.mode === 'hard' && !['/me', '/auth/logout', '/config'].includes(req.path)) return res.status(503).json({ error: msg, code: 'MAINTENANCE' });
+    if (m.mode === 'soft' && req.method === 'POST' && /^\/(mocks\/[^/]+\/start|practice)/.test(req.path)) return res.status(503).json({ error: msg, code: 'MAINTENANCE' });
+    const off = (k, label) => res.status(403).json({ error: `${label} is switched off right now.`, code: 'FEATURE_OFF' });
+    if (!c.features.practice && req.path.startsWith('/practice')) return off('practice', 'Practice sets');
+    if (!c.features.referrals && req.path.startsWith('/referral')) return off('referrals', 'Invite-a-friend rewards');
+    if (!c.features.shareLinks && req.path.startsWith('/share-links')) return off('shareLinks', 'Parent progress links');
+    if (!c.features.notebook && /^\/(notebook|bookmarks)/.test(req.path)) return off('notebook', 'The mistake notebook');
+    return next();
+  });
   api.get('/me', (req, res) => res.json({ user: publicUser(req.user) }));
   api.patch('/me', (req, res) => {
     const { name, targetScore, examDate } = req.body || {};
@@ -583,7 +613,12 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
   });
 
   // ---------- admin ----------
-  api.use('/admin', (req, res, next) => (['admin', 'editor'].includes(req.user.role) ? next() : res.status(403).json({ error: 'Admin access only' })), adminRouter({ drafter, db, now, invalidate, getMock, readResult, hashPw, iso, settings, notifier, features, features2, exams, runReminders: runRem }));
+  jobs.reg('reminders', 'Reminders, digests and event alerts', 'every 10 min', () => runRem());
+  jobs.reg('broadcasts', 'Scheduled broadcasts', 'every 10 min', () => broadcastDue({ db, notifier, now }));
+  jobs.reg('campaigns', 'Message campaigns', 'every 10 min', () => runCampaigns({ db, notifier, now }));
+  jobs.reg('backup', 'Database backup', 'every 10 min (runs when due)', () => { const b = runBackup({ db, now, settings }); return b ? `Saved ${b.name}` : 'Not due yet'; });
+  jobs.reg('cleanup', 'Tidy expired sign-ins and codes', 'every 10 min', () => { const t = now(); db.prepare('DELETE FROM sessions WHERE expires_at<?').run(t); db.prepare("DELETE FROM otps WHERE expires_at<? AND expires_at>0").run(t - 86400000); db.prepare('DELETE FROM login_log WHERE at<?').run(t - 90 * 86400000); });
+  api.use('/admin', (req, res, next) => (['admin', 'editor'].includes(req.user.role) ? next() : res.status(403).json({ error: 'Admin access only' })), adminRouter({ drafter, db, now, invalidate, getMock, readResult, hashPw, iso, settings, notifier, features, features2, exams, runReminders: runRem, mailer, jobs, metrics, controls }));
 
   api.use((req, res) => res.status(404).json({ error: 'Not found' }));
   app.use('/api', api);

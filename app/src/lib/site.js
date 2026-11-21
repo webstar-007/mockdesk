@@ -8,6 +8,7 @@ function load() {
   if (!pending) pending = api.get('/public/site').then((s) => { cache = { ...SITE_FALLBACK, ...s }; listeners.forEach((f) => f(cache)); }).catch(() => { pending = null; });
   return pending;
 }
+if (typeof window !== 'undefined') window.addEventListener('md-maint', (e) => { cache = { ...(cache || SITE_FALLBACK), maintenance: 'hard', maintenanceMessage: e.detail || '' }; listeners.forEach((f) => f(cache)); });
 export const refreshSite = () => { cache = null; pending = null; return load(); };
 export function useSite() {
   const [s, set] = useState(cache || SITE_FALLBACK);

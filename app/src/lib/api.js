@@ -9,6 +9,7 @@ async function req(method, url, body) {
   } catch { throw new ApiError('Network problem. Check your connection.', 0, 'NETWORK'); }
   let data = null;
   try { data = await res.json(); } catch { /* empty */ }
+  if (res.status === 503 && data?.code === 'MAINTENANCE') window.dispatchEvent(new CustomEvent('md-maint', { detail: data.error }));
   if (!res.ok) throw new ApiError(data?.error || `Request failed (${res.status})`, res.status, data?.code);
   return data;
 }

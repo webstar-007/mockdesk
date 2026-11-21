@@ -12,6 +12,7 @@ import { recentErrors, clearErrors, startedAt, recordError } from './lib/health.
 import { answerAsk, EXAMPLES } from './lib/ask.js';
 import { mountAdminExtras } from './adminExtras.js';
 import { mountOps } from './ops.js';
+import { mountControl } from './control.js';
 import { mountContent } from './content.js';
 import { matchesFor } from './lib/similar.js';
 import { sectionDef, allSectionKeys, allSections } from './lib/sections.js';
@@ -66,7 +67,7 @@ export function cleanQuestion(body, { partial = false, strictOptions = false } =
   return { section, q, errors };
 }
 
-export function adminRouter({ drafter = null, db, now, invalidate, getMock, readResult, hashPw, settings, notifier, features, features2, runReminders, exams }) {
+export function adminRouter({ drafter = null, db, now, invalidate, getMock, readResult, hashPw, settings, notifier, features, features2, runReminders, exams, mailer = null, jobs, metrics, controls }) {
   const r = express.Router();
   // Admins can do everything. Staff (role "editor") get the content tools plus whatever permissions an admin ticked for them.
   r.use((req, res, next) => {
@@ -700,6 +701,7 @@ export function adminRouter({ drafter = null, db, now, invalidate, getMock, read
   });
 
   mountAdminExtras({ r, db, now, audit, bad, results, settings, notifier, features, runReminders, page });
+  mountControl({ r, db, now, audit, bad, settings, notifier, mailer, jobs, metrics, controlsCache: controls, recentErrors });
   mountOps({ r, db, now, audit, bad, results, settings, notifier, page });
   mountContent({ r, db, now, audit, bad, settings, drafter, cleanQuestion, saveQuestion, qOut });
   r.use((req, res) => res.status(404).json({ error: 'Not found' }));

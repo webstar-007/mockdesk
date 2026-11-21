@@ -10,6 +10,8 @@ export function openDb(file = process.env.MOCKDESK_DB || path.join(ROOT, 'data',
     PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, name TEXT, email TEXT UNIQUE, salt TEXT, hash TEXT, target_score INTEGER, exam_date TEXT, created_at TEXT);
     CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, user_id INTEGER, expires_at INTEGER);
+    CREATE TABLE IF NOT EXISTS login_log(id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER, user_id INTEGER, who TEXT, ok INTEGER, method TEXT, ip TEXT, ua TEXT, note TEXT);
+    CREATE INDEX IF NOT EXISTS idx_login_log_at ON login_log(at);
     CREATE TABLE IF NOT EXISTS attempts(id TEXT PRIMARY KEY, user_id INTEGER, mock_id TEXT, status TEXT, segment_index INTEGER, segment_started_at INTEGER,
       started_at INTEGER, submitted_at INTEGER, auto_submitted INTEGER DEFAULT 0, responses TEXT DEFAULT '{}', last_qid TEXT, result TEXT);
     CREATE INDEX IF NOT EXISTS idx_attempts_user ON attempts(user_id);
