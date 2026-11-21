@@ -32,7 +32,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const GRACE_MS = 5000;
 // Dev/testing only: MOCKDESK_TIME_SCALE=0.02 shortens every section timer (e.g. 30 min -> 36 s).
 const SCALE = Number(process.env.MOCKDESK_TIME_SCALE) > 0 ? Number(process.env.MOCKDESK_TIME_SCALE) : 1;
-const SESSION_MS = 14 * 24 * 3600 * 1000;
+const SESSION_MS = 60 * 24 * 3600 * 1000;      // "Keep me signed in": the browser stays signed in for 60 days
+const SHORT_SESSION_MS = 12 * 3600 * 1000;      // not ticked: signed out when the browser closes, or after 12 hours
 const INSTRUCTIONS = [
   'The paper has five sections: Mathematical Abilities, Reasoning, English, General Awareness and Computer Knowledge.',
   'Each section has its own countdown. When it ends, answers are saved and submitted automatically and the next section opens.',
@@ -106,10 +107,10 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
   // ---------- auth ----------
   const cookieOf = (req) => Object.fromEntries((req.headers.cookie || '').split(';').map((c) => c.trim().split('=')).filter((p) => p[0]).map(([k, ...v]) => [k, decodeURIComponent(v.join('='))]));
   const publicUser = (u) => ({ perms: u.role === 'editor' ? permsOf(u) : undefined, role: u.role || 'student', id: u.id, name: u.name, email: u.email, phone: u.phone || null, targetScore: u.target_score, examDate: u.exam_date, createdAt: u.created_at });
-  function startSession(res, userId) {
-    const sid = crypto.randomBytes(32).toString('hex');
-    db.prepare('INSERT INTO sessions VALUES (?,?,?)').run(sid, userId, now() + SESSION_MS);
-    res.setHeader('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_MS / 1000}${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
+  function startSession(res, userId, remember = true) {
+    const sid = crypto.randomBytes(32).toString('hex'); const ms = remember ? SESSION_MS : SHORT_SESSION_MS;
+    db.prepare('INSERT INTO sessions VALUES (?,?,?)').run(sid, userId, now() + ms);
+    res.setHeader('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Lax; Path=/${remember ? `; Max-Age=${ms / 1000}` : ''}${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
   }
   function auth(req, res, next) {
     const sid = cookieOf(req).sid;
@@ -140,7 +141,7 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
     const salt = crypto.randomBytes(16).toString('hex');
     const r = db.prepare('INSERT INTO users(name,email,salt,hash,created_at) VALUES (?,?,?,?,?)').run(String(name).trim().slice(0, 80), mail, salt, hashPw(password, salt), iso(now()));
     features.applyReferral(Number(r.lastInsertRowid), req.body?.ref);
-    promote(); startSession(res, Number(r.lastInsertRowid));
+    promote(); startSession(res, Number(r.lastInsertRowid), req.body?.remember !== false);
     res.status(201).json({ user: publicUser(db.prepare('SELECT * FROM users WHERE id=?').get(r.lastInsertRowid)) });
   });
   api.post('/auth/login', (req, res) => {
@@ -152,7 +153,7 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
     const ok = u && u.hash && crypto.timingSafeEqual(Buffer.from(hashPw(String(password || ''), u.salt), 'hex'), Buffer.from(u.hash, 'hex'));
     if (!ok) return res.status(401).json({ error: 'Incorrect email or password' });
     if (u.status === 'suspended') return res.status(403).json({ error: 'This account has been suspended. Contact the administrator.', code: 'SUSPENDED' });
-    startSession(res, u.id);
+    startSession(res, u.id, req.body?.remember !== false);
     res.json({ user: publicUser(u) });
   });
   // ---- one-time-password sign-in (email or mobile). Signing in with a new email/number creates the account. ----
@@ -198,7 +199,7 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
     }
     if (u.status === 'suspended') return res.status(403).json({ error: 'This account has been suspended. Contact the administrator.', code: 'SUSPENDED' });
     promote(); u = db.prepare('SELECT * FROM users WHERE id=?').get(u.id);
-    startSession(res, u.id);
+    startSession(res, u.id, req.body?.remember !== false);
     res.json({ user: publicUser(u), isNew });
   });
   api.post('/auth/logout', (req, res) => {

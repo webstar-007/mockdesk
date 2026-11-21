@@ -20,7 +20,7 @@ npm run build
 npm start
 ```
 
-Open http://localhost:3000. Sign-in codes are printed in the terminal while no email or SMS provider is set, and password sign-in always works.
+Open http://localhost:3000. Students can tick "Keep me signed in" (60 days; unticked, they are signed out when the browser closes), and the sign-in page remembers their email on that device. Passwords are never stored by the site; browsers offer to save them. Sign-in codes are printed in the terminal while no email or SMS provider is set, and password sign-in always works.
 
 To become the first admin, put your email in `admins.txt` before you sign up with it. After that, manage roles in Admin > Users.
 

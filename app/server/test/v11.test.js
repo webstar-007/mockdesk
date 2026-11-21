@@ -146,3 +146,11 @@ test('site settings: name, contact, FAQ, limits and time zone are edited by an a
   assert.equal((await call('sam', 'PUT', '/admin/site', { site, limits })).status, 403, 'staff cannot change site settings');
   assert.equal((await call('admin', 'GET', '/admin/site')).body.limits.practicePerDay, 7);
 });
+
+test('keep me signed in: long cookie by default, browser-session cookie when unticked', async () => {
+  const login = (remember) => fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: E.ben, password: 'password123', ...(remember === undefined ? {} : { remember }) }) });
+  const a = (await login()).headers.get('set-cookie'); assert.match(a, /Max-Age=5184000/);
+  const b = (await login(true)).headers.get('set-cookie'); assert.match(b, /Max-Age=5184000/);
+  const c = (await login(false)).headers.get('set-cookie'); assert.ok(!/Max-Age/.test(c), c);
+  const sid = /sid=([a-f0-9]+)/.exec(c)[1]; const exp = db.prepare('SELECT expires_at FROM sessions WHERE id=?').get(sid).expires_at; assert.ok(exp - clock <= 12 * 3600 * 1000 + 1000, 'short server-side life');
+});

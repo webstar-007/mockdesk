@@ -21,9 +21,12 @@ export default function AuthPage({ mode }) {
   const nav = useNavigate(); const loc = useLocation();
   const reg = mode === 'register';
   const [method, setMethod] = useState('otp'); // otp | password
-  const [f, setF] = useState({ name: '', email: '', password: '' });
+  const saved = (() => { try { return localStorage.getItem('md_last_id') || ''; } catch { return ''; } })();
+  const [f, setF] = useState({ name: '', email: saved.includes('@') ? saved : '', password: '' });
   const [err, setErr] = useState(''); const [busy, setBusy] = useState(false); const [show, setShow] = useState(false);
-  const [ident, setIdent] = useState(''); const [code, setCode] = useState('');
+  const [remember, setRemember] = useState(() => { try { return localStorage.getItem('md_remember') !== '0'; } catch { return true; } });
+  const keep = (id) => { try { localStorage.setItem('md_remember', remember ? '1' : '0'); if (remember && id) localStorage.setItem('md_last_id', id); else localStorage.removeItem('md_last_id'); } catch { /* private mode */ } };
+  const [ident, setIdent] = useState(saved); const [code, setCode] = useState('');
   const [sentTo, setSentTo] = useState(null); const [exists, setExists] = useState(true); const [newName, setNewName] = useState(''); const [wait, setWait] = useState(0); const codeRef = useRef(null); const nameRef = useRef(null);
   useEffect(() => { if (wait <= 0) return; const t = setTimeout(() => setWait(wait - 1), 1000); return () => clearTimeout(t); }, [wait]);
   useEffect(() => { if (sentTo) (exists ? codeRef : nameRef).current?.focus(); }, [sentTo, exists]);
@@ -41,12 +44,12 @@ export default function AuthPage({ mode }) {
   };
   const verifyCode = async (e) => {
     e?.preventDefault(); if (code.length !== 6 || busy) return; if (!exists && !newName.trim()) { setErr('Enter your name to create your account, or use Sign up.'); nameRef.current?.focus(); return; } setErr(''); setBusy(true);
-    try { const r = await otpVerify(channel, ident, code, newName.trim()); nav(r.isNew ? '/profile?welcome=1' : (loc.state?.from || '/'), { replace: true }); }
+    try { const r = await otpVerify(channel, ident, code, newName.trim(), remember); keep(ident.trim()); nav(r.isNew ? '/profile?welcome=1' : (loc.state?.from || '/'), { replace: true }); }
     catch (x) { setErr(x.message); setCode(''); if (x.code === 'EXPIRED' || x.code === 'LOCKED') setWait(0); setBusy(false); }
   };
   const submit = async (e) => {
     e.preventDefault(); setErr(''); setBusy(true);
-    try { if (reg) await register(f.name, f.email, f.password); else await login(f.email, f.password); nav(loc.state?.from || '/', { replace: true }); }
+    try { if (reg) await register(f.name, f.email, f.password, remember); else await login(f.email, f.password, remember); keep(f.email.trim()); nav(loc.state?.from || '/', { replace: true }); }
     catch (x) { setErr(x.message); } finally { setBusy(false); }
   };
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -95,11 +98,13 @@ export default function AuthPage({ mode }) {
                     </div>
                   )}
                   <CodeBoxes value={code} onChange={setCode} inputRef={codeRef} />
+                  <label className="check auth-keep"><input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /><span>Keep me signed in on this device<small className="muted"> Untick on a shared computer.</small></span></label>
                   <button className="auth-submit" disabled={busy || code.length !== 6}>{busy ? 'Verifying…' : exists ? 'Verify and continue' : 'Verify and create account'}</button>
                   <p className="alt">{wait > 0 ? <span>Resend code in {wait}s</span> : <button type="button" className="linklike" onClick={sendCode} disabled={busy}>Resend code</button>}</p>
                 </>
               ) : (
                 <>
+                  <label className="check auth-keep"><input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /><span>Keep me signed in on this device<small className="muted"> Untick on a shared computer.</small></span></label>
                   <button className="auth-submit" disabled={busy || !ident.trim()}>{busy ? 'Sending…' : 'Send code'}</button>
                   <p className="alt">New here? You’ll be asked for your name, or <Link to="/register">sign up</Link> directly.</p>
                 </>
@@ -108,10 +113,11 @@ export default function AuthPage({ mode }) {
           ) : (
             <form onSubmit={submit} noValidate>
               {reg && <label>Full name<input autoFocus autoComplete="name" value={f.name} onChange={set('name')} placeholder="Your name" required /></label>}
-              <label>Email<input autoFocus={!reg} type="email" autoComplete="email" value={f.email} onChange={set('email')} placeholder="you@example.com" required /></label>
+              <label>Email<input autoFocus={!reg && !f.email} name="email" type="email" autoComplete={reg ? 'email' : 'username'} value={f.email} onChange={set('email')} placeholder="you@example.com" required /></label>
               <label>Password
-                <span className="pw"><input type={show ? 'text' : 'password'} autoComplete={reg ? 'new-password' : 'current-password'} value={f.password} onChange={set('password')} placeholder={reg ? 'At least 8 characters' : 'Your password'} required minLength={8} /><button type="button" className="pw-toggle" onClick={() => setShow(!show)} aria-pressed={show}>{show ? 'Hide' : 'Show'}</button></span>
+                <span className="pw"><input name="password" type={show ? 'text' : 'password'} autoComplete={reg ? 'new-password' : 'current-password'} value={f.password} onChange={set('password')} placeholder={reg ? 'At least 8 characters' : 'Your password'} required minLength={8} /><button type="button" className="pw-toggle" onClick={() => setShow(!show)} aria-pressed={show}>{show ? 'Hide' : 'Show'}</button></span>
               </label>
+              <label className="check auth-keep"><input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /><span>Keep me signed in on this device<small className="muted"> Untick on a shared computer.</small></span></label>
               <button className="auth-submit" disabled={busy}>{busy ? 'Please wait…' : reg ? 'Create account' : 'Sign in'}</button>
               {reg && <p className="alt">Prefer no password? <Link to="/login">Sign in with a one-time code</Link></p>}
             </form>

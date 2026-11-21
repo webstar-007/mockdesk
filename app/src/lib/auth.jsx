@@ -16,10 +16,10 @@ export function AuthProvider({ children }) {
     clearRef(); const b = pendingBatch();
     if (b) { api.post('/batches/join', { code: b }).catch(() => {}).finally(clearBatch); }
   }, [user]);
-  const login = useCallback(async (email, password) => setUser((await api.post('/auth/login', { email, password })).user), []);
-  const register = useCallback(async (name, email, password) => setUser((await api.post('/auth/register', { name, email, password, ref: pendingRef() || undefined })).user), []);
+  const login = useCallback(async (email, password, remember = true) => setUser((await api.post('/auth/login', { email, password, remember })).user), []);
+  const register = useCallback(async (name, email, password, remember = true) => setUser((await api.post('/auth/register', { name, email, password, remember, ref: pendingRef() || undefined })).user), []);
   const otpRequest = useCallback((channel, identifier) => api.post('/auth/otp/request', { channel, identifier }), []);
-  const otpVerify = useCallback(async (channel, identifier, code, name) => { const r = await api.post('/auth/otp/verify', { channel, identifier, code, name, ref: pendingRef() || undefined }); setUser(r.user); return r; }, []);
+  const otpVerify = useCallback(async (channel, identifier, code, name, remember = true) => { const r = await api.post('/auth/otp/verify', { channel, identifier, code, name, remember, ref: pendingRef() || undefined }); setUser(r.user); return r; }, []);
   const logout = useCallback(async () => { await api.post('/auth/logout').catch(() => {}); setUser(null); }, []);
   const updateProfile = useCallback(async (patch) => setUser((await api.patch('/me', patch)).user), []);
   return <Ctx.Provider value={{ user, config, login, register, otpRequest, otpVerify, logout, updateProfile }}>{children}</Ctx.Provider>;
