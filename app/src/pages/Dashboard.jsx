@@ -14,8 +14,7 @@ const STATUS = { not_attempted: ['Not attempted', 'st-none'], in_progress: ['In 
 export default function Dashboard() {
   const { user, config } = useAuth();
   const nav = useNavigate();
-  const exams = config?.exams?.length ? config.exams : EXAMS; const [examPick, setExam] = useState(null); const exam = examPick && exams.some((x) => x.id === examPick) ? examPick : exams[0].id; const [filter, setFilter] = useState('all'); const [allMocks, setMocks] = useState(null); const [stats, setStats] = useState(null); const [hist, setHist] = useState([]); const [err, setErr] = useState(''); const [busy, setBusy] = useState(''); const [tab, setTabState] = useState(() => { try { return sessionStorage.getItem('md-dash-tab') || 'mocks'; } catch { return 'mocks'; } });
-  const setTab = (t) => { setTabState(t); try { sessionStorage.setItem('md-dash-tab', t); } catch { /* optional */ } };
+  const exams = config?.exams?.length ? config.exams : EXAMS; const [examPick, setExam] = useState(null); const exam = examPick && exams.some((x) => x.id === examPick) ? examPick : exams[0].id; const [filter, setFilter] = useState('all'); const [allMocks, setMocks] = useState(null); const [stats, setStats] = useState(null); const [hist, setHist] = useState([]); const [err, setErr] = useState(''); const [busy, setBusy] = useState('');
   useEffect(() => {
     Promise.all([api.get('/mocks'), api.get('/stats'), api.get('/attempts')])
       .then(([m, s, h]) => { setMocks(m.mocks); setStats(s); setHist(h.attempts.filter((a) => a.status === 'submitted')); })
@@ -64,113 +63,109 @@ export default function Dashboard() {
     qs ? ['Computer is qualifying only', `You need ${qs.qualifyingMarks} of ${qs.questions * qs.marksPerQuestion} to qualify and its marks are not added to your total.`] : ['Keep an eye on the clock', 'Aim to finish a first pass with a few minutes spare, then revisit the questions you marked.'],
     ['Review every mock within a day', 'Read the “Common mistake” note even on questions you got right.'],
   ];
-  const bestOf = (m) => m.best ? Math.round(m.best.percentage) : null;
-  const tabs = [['mocks', 'Mocks'], ['progress', 'Progress'], ['practice', 'Practice'], ['guide', 'Guide']];
-  const nextLabel = inProg ? 'Resume test' : done ? 'Start next mock' : 'Start your first mock';
+  const bestOf = (m) => (m.best ? Math.round(m.best.percentage) : null);
   const mockAction = (m) => (m.upcoming ? 'Not open yet' : m.locked ? 'Invite to unlock' : m.status === 'in_progress' ? 'Resume' : m.status === 'completed' ? 'Retake' : 'Start');
+  const dayKey = (t) => { const d = new Date(t); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; };
+  const actDays = new Set((stats?.activity || []).map(dayKey));
+  const week = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (6 - i)); return { on: actDays.has(dayKey(d)), l: d.toLocaleDateString(undefined, { weekday: 'narrow' }), today: i === 6 }; });
+  let streak = 0; { const p = new Date(); p.setHours(0, 0, 0, 0); if (!actDays.has(dayKey(p))) p.setDate(p.getDate() - 1); while (actDays.has(dayKey(p))) { streak++; p.setDate(p.getDate() - 1); } }
+  const R = 42, C = 2 * Math.PI * R; const ringPct = mocks.length ? Math.round((done / mocks.length) * 100) : 0;
+  const hasData = primary && stats?.completed > 0; const weak = hasData ? (stats.weakTopics || []).slice(0, 3) : [];
   return (
-    <div className="sd">
-      <header className="sd-top">
-        <div>
-          <h1>{greet}, {first}</h1>
-          <p className="muted">{done ? `${done} of ${mocks.length} mocks done` : 'Take a first mock to set your baseline'}{daysLeft != null && daysLeft >= 0 ? ` · ${daysLeft === 0 ? 'exam is today' : `${daysLeft} day${daysLeft === 1 ? '' : 's'} to your exam`}` : ''}</p>
-        </div>
-        {exams.length > 1 && <div className="sd-exams" role="group" aria-label="Choose exam">{exams.map((x) => <button key={x.id} className={exam === x.id ? 'on' : ''} aria-pressed={exam === x.id} onClick={() => { setExam(x.id); setFilter('all'); }}>{x.name}</button>)}</div>}
+    <div className="nd">
+      <header className="nd-top">
+        <div><h1>{greet}, {first}</h1>
+          <p>{daysLeft != null && daysLeft >= 0 ? (daysLeft === 0 ? 'Your exam is today. Good luck!' : `${daysLeft} day${daysLeft === 1 ? '' : 's'} to your exam`) : done ? `${done} of ${mocks.length} mocks done` : 'Let’s set your baseline with a first mock'}</p></div>
+        {exams.length > 1 && <div className="nd-seg" role="group" aria-label="Choose exam">{exams.map((x) => <button key={x.id} className={exam === x.id ? 'on' : ''} aria-pressed={exam === x.id} onClick={() => { setExam(x.id); setFilter('all'); }}>{x.name}</button>)}</div>}
       </header>
 
-      <section className="sd-next" aria-label="Your next step">
-        {nextMock ? (
-          <div className="sd-next-main">
-            <span className="sd-chip">{inProg ? 'In progress' : done ? 'Up next' : 'Start here'}</span>
+      <section className="nd-hero" aria-label="Your next step">
+        <div className="nd-hero-in">
+          {nextMock ? <>
+            <span className="nd-eyebrow">{inProg ? 'Continue where you stopped' : done ? 'Up next' : 'Start here'}</span>
             <h2>{nextMock.name.replace('CGL Tier-II ', '')}</h2>
-            <p className="sd-facts">{nextMock.totalQuestions + (nextMock.qualifying || []).reduce((b, x) => b + x.questions, 0)} questions · {nextMock.totalMarks} marks · {nextMock.totalMinutes} min · {nextMock.difficulty}</p>
-            <div className="sd-cta">
-              <button className="sd-btn sd-btn-pri" onClick={() => start(nextMock)}>{nextLabel}</button>
-              {lastDone && <Link className="sd-btn" to={`/results/${lastDone.id}`}>Last analysis</Link>}
-            </div>
-          </div>
-        ) : <div className="sd-next-main"><h2>{mocks.length ? 'You have finished every open mock' : `No ${examName} mocks yet`}</h2><p className="sd-facts">{mocks.length ? 'Review your mistakes while new papers are added.' : 'Check back soon.'}</p>{lastDone && <div className="sd-cta"><Link className="sd-btn sd-btn-pri" to={`/results/${lastDone.id}`}>Last analysis</Link></div>}</div>}
-        {mine.length > 0 && <dl className="sd-stats" aria-label="Your numbers">
-          <div><dt>Best score</dt><dd>{kBest != null ? <>{num(kBest)}<small>/{maxMarks}</small></> : '–'}</dd></div>
-          <div><dt>Average</dt><dd>{mine.length ? `${num(kAvg)}%` : '–'}</dd></div>
-          <div><dt>{targetPct != null ? 'Of target' : 'Accuracy'}</dt><dd>{targetPct != null ? `${targetPct}%` : stats?.completed ? `${num(stats.avgAccuracy)}%` : '–'}</dd></div>
-        </dl>}
+            <p className="nd-hero-facts">{nextMock.totalQuestions + (nextMock.qualifying || []).reduce((b, x) => b + x.questions, 0)} questions · {nextMock.totalMarks} marks · {nextMock.totalMinutes} minutes</p>
+            <div className="nd-hero-cta"><button onClick={() => start(nextMock)}>{inProg ? 'Resume test' : done ? 'Start next mock' : 'Start first mock'}</button>{lastDone && <Link to={`/results/${lastDone.id}`}>See last analysis</Link>}</div>
+          </> : <>
+            <span className="nd-eyebrow">{mocks.length ? 'All caught up' : 'Coming soon'}</span>
+            <h2>{mocks.length ? 'You have finished every open mock' : `No ${examName} mocks yet`}</h2>
+            <p className="nd-hero-facts">{mocks.length ? 'Review your mistakes while new papers are added.' : 'Check back soon.'}</p>
+            {lastDone && <div className="nd-hero-cta"><Link to={`/results/${lastDone.id}`}>See last analysis</Link></div>}
+          </>}
+        </div>
+        <div className="nd-ring" role="img" aria-label={`${done} of ${mocks.length} mocks done`}>
+          <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r={R} className="bg" /><circle cx="50" cy="50" r={R} className="fg" strokeDasharray={`${(ringPct / 100) * C} ${C}`} transform="rotate(-90 50 50)" /></svg>
+          <b>{done}<small>/{mocks.length}</small></b><span>mocks done</span>
+        </div>
       </section>
 
-      <nav className="sd-tabs" role="tablist" aria-label="Dashboard sections">
-        {tabs.map(([k, l]) => <button key={k} role="tab" id={`sd-t-${k}`} aria-selected={tab === k} aria-controls="sd-panel" className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}
-      </nav>
+      <div className="nd-grid">
+        <div className="nd-main">
+          <div className="nd-sec-h"><h2>Your mocks</h2>
+            <div className="nd-seg sm" role="group" aria-label="Filter mocks">
+              {[['all', 'All'], ['not_attempted', 'New'], ['in_progress', 'Started'], ['completed', 'Done'], ...(counts.live ? [['live', 'Live']] : []), ...(counts.pyq ? [['pyq', 'Past papers']] : [])].map(([k, l]) => <button key={k} className={filter === k ? 'on' : ''} aria-pressed={filter === k} onClick={() => setFilter(k)}>{l}</button>)}
+            </div></div>
+          {shown.length === 0 && <p className="nd-empty">{mocks.length === 0 ? `No ${examName} mocks have been published yet. Check back soon.` : 'Nothing in this view yet.'}</p>}
+          <ul className="nd-mocks">
+            {shown.map((m) => {
+              const i = mocks.indexOf(m); const [label, cls] = STATUS[m.status]; const b = bestOf(m); const lvl = { easy: 1, moderate: 2, hard: 3 }[m.difficulty] || 2;
+              return (
+                <li key={m.id} className={`nd-mock d${lvl} ${m.id === nextMock?.id ? 'is-next' : ''} ${m.locked ? 'is-locked' : ''}`}>
+                  <div className="nd-mock-h"><span className="nd-n" aria-hidden="true">{i + 1}</span>
+                    <div><h3>{m.name.replace('CGL Tier-II ', '')}</h3><p>{m.totalMinutes} min · {m.totalQuestions + (m.qualifying || []).reduce((x, y) => x + y.questions, 0)} Qs · <span className="nd-diff">{m.difficulty}</span></p></div>
+                    {b != null ? null : <span className={`status ${cls}`}>{m.id === nextMock?.id && m.status === 'not_attempted' ? 'Up next' : label}</span>}</div>
+                  {(m.kind === 'pyq' || m.live || m.locked) && <p className="nd-tags">{m.kind === 'pyq' && <span>Past paper{m.paperYear ? ` ${m.paperYear}` : ''}</span>}{m.live && <span className="live">Live</span>}{m.locked && <span>Locked</span>}</p>}
+                  {m.live && <p className="nd-live">{m.live.state === 'upcoming' ? `Opens ${fmtDateTime(m.live.opensAt)}` : m.live.state === 'open' ? `Open until ${fmtDateTime(m.live.closesAt)}. First finished attempt counts for rank.` : (m.live.rank ? `You ranked #${m.live.rank} of ${m.live.of}` : 'Window closed. Ranks are final.')}</p>}
+                  {b != null && <div className="nd-score"><b>{m.best.score}<small>/{m.totalMarks}</small></b><i aria-hidden="true"><u style={{ width: `${Math.min(100, b)}%` }} /></i><span>{b}%</span></div>}
+                  <div className="nd-mock-f">
+                    <button className={m.status === 'completed' ? 'ghost' : 'pri'} disabled={busy === m.id || m.upcoming} onClick={() => start(m)}>{mockAction(m)}</button>
+                    {m.last && <Link to={`/results/${m.last.attemptId}`}>Result</Link>}{m.live && <Link to={`/live/${m.id}`}>{m.live.state === 'closed' ? 'Leaderboard' : 'Details'}</Link>}
+                  </div>
+                </li>);
+            })}
+          </ul>
+          <div className="nd-practice"><PracticeCard /></div>
+        </div>
 
-      <div id="sd-panel" role="tabpanel" aria-labelledby={`sd-t-${tab}`}>
-        {tab === 'mocks' && (
-          <section aria-label="Full-length mocks">
-            <div className="sd-filters" role="group" aria-label="Filter mocks">
-              {[['all', 'All'], ['not_attempted', 'New'], ['in_progress', 'In progress'], ['completed', 'Done'], ...(counts.live ? [['live', 'Live']] : []), ...(counts.pyq ? [['pyq', 'Past papers']] : [])].map(([k, l]) => <button key={k} className={filter === k ? 'on' : ''} aria-pressed={filter === k} onClick={() => setFilter(k)}>{l}<span>{counts[k] ?? 0}</span></button>)}
-            </div>
-            {shown.length === 0 && <p className="sd-empty muted">{mocks.length === 0 ? `No ${examName} mocks have been published yet. Check back soon.` : 'Nothing in this view yet.'}</p>}
-            <ul className="sd-list">
-              {shown.map((m) => {
-                const i = mocks.indexOf(m); const [label, cls] = STATUS[m.status]; const b = bestOf(m); const isNext = m.id === nextMock?.id;
-                return (
-                  <li key={m.id} className={`sd-row ${m.locked ? 'is-locked' : ''} ${isNext ? 'is-next' : ''}`}>
-                    <span className="sd-num" aria-hidden="true">{i + 1}</span>
-                    <div className="sd-row-main">
-                      <h3>{m.name.replace('CGL Tier-II ', '')}{m.kind === 'pyq' && <span className="sd-tag">Past paper{m.paperYear ? ` ${m.paperYear}` : ''}</span>}{m.live && <span className="sd-tag live">Live</span>}{m.locked && <span className="sd-tag">Locked</span>}</h3>
-                      <p className="sd-meta">{m.totalQuestions + (m.qualifying || []).reduce((x, y) => x + y.questions, 0)} Qs · {m.totalMarks} marks · {m.totalMinutes} min · {m.difficulty}{!m.complete ? ' · still being completed' : ''}</p>
-                      {m.live && <p className="sd-live">{m.live.state === 'upcoming' ? `Opens ${fmtDateTime(m.live.opensAt)}` : m.live.state === 'open' ? `Open until ${fmtDateTime(m.live.closesAt)}. Your first finished attempt counts for rank.` : (m.live.rank ? `You ranked #${m.live.rank} of ${m.live.of}` : 'Window closed. Ranks are final.')}</p>}
-                    </div>
-                    <div className="sd-row-score">{b != null ? <><b>{m.best.score}<small>/{m.totalMarks}</small></b><i className="sd-bar" aria-hidden="true"><u style={{ width: `${Math.min(100, b)}%` }} /></i></> : <span className={`status ${cls}`}>{label}</span>}</div>
-                    <div className="sd-row-act">
-                      <button className={`sd-btn ${m.status === 'completed' ? '' : 'sd-btn-pri'}`} disabled={busy === m.id || m.upcoming} onClick={() => start(m)}>{mockAction(m)}</button>
-                      {m.last && <Link className="sd-link" to={`/results/${m.last.attemptId}`}>Result</Link>}
-                      {m.live && <Link className="sd-link" to={`/live/${m.id}`}>{m.live.state === 'closed' ? 'Leaderboard' : 'Details'}</Link>}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        )}
-
-        {tab === 'progress' && (!primary
-          ? <div className="card"><h3>Your progress in {examName}</h3><p className="muted">{mine.length ? 'Open any finished mock for its full section and topic analysis. Questions you got wrong are collected in your Notebook.' : 'Finish a mock to see your analysis here.'} <Link to="/notebook">Open notebook</Link></p></div>
-          : stats?.completed > 0 ? (
-            <div className="ix-grid">
-              <ReadinessGauge r={readiness} />
-              <SkillRadar sections={stats.sections} />
-              <div className="ix-plan"><StudyPlanner stats={stats} nextMock={nextMock} mocksLeft={mocks.filter((m) => m.status === 'not_attempted').length} daysLeft={daysLeft} lastId={lastDone?.id} sectionName={config?.sections[stats.weakest]?.short} /></div>
-              <Trajectory trend={stats.trend} target={user.targetScore} maxMarks={maxMarks} />
-              <div className="ix-card ix-weak"><h3>Weakest topics</h3>
-                {stats.weakTopics?.length ? <ul className="weak-list">{stats.weakTopics.slice(0, 6).map((t) => <li key={t.topic + t.section}><span>{t.topic}<small> · {config?.sections[t.section]?.short}</small></span><b>{t.accuracy}%</b></li>)}</ul> : <p className="muted small">Not enough data yet.</p>}
-                {lastDone && <Link className="hm-more" to={`/review/${lastDone.id}?filter=incorrect`}>Review last mock’s mistakes →</Link>}
+        <aside className="nd-rail" aria-label="Your progress">
+          {hasData ? <>
+            <section className="nd-card"><h3>Your snapshot</h3>
+              <div className="nd-snap">
+                <div className="nd-gauge" role="img" aria-label={`Readiness ${readiness.value} out of 100, ${readiness.band}`}><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r={R} className="bg" /><circle cx="50" cy="50" r={R} className="fg g" strokeDasharray={`${(readiness.value / 100) * C} ${C}`} transform="rotate(-90 50 50)" /></svg><b>{readiness.value}</b></div>
+                <div><strong>{readiness.band}</strong><p>Exam readiness out of 100</p></div>
               </div>
-              <div className="ix-full"><ActivityMap stamps={stats.activity} /></div>
-              {examHist.length > 0 && (
-                <div className="ix-full"><h3>Attempt history</h3>
-                  <div className="tbl-wrap card nopad"><table className="dtable hist">
-                    <thead><tr><th>Test</th><th>Date</th><th>Score</th><th>Accuracy</th><th>Computer</th><th>Time</th><th /></tr></thead>
-                    <tbody>{examHist.map((h) => <tr key={h.id}><th scope="row">{h.mockName}</th><td>{fmtDate(h.submittedAt)}</td><td>{h.score}/{h.maxMarks}</td><td>{h.accuracy}%</td><td>{h.qualified === null || h.qualified === undefined ? '–' : <span className={`qchip ${h.qualified ? 'q-pass' : 'q-fail'}`}>{h.qualified ? 'Qualified' : 'Not qualified'}</span>}</td><td>{duration(h.timeTakenSec)}</td><td><Link to={`/results/${h.id}`}>Analysis</Link> · <Link to={`/review/${h.id}`}>Review</Link> · <PdfMenu id={h.id} compact /></td></tr>)}</tbody>
-                  </table></div></div>
-              )}
-            </div>
-          ) : <LockedInsights />)}
-
-        {tab === 'practice' && (
-          <div className="sd-stack"><PracticeCard />{stats?.completed ? <ToolTiles /> : null}</div>
-        )}
-
-        {tab === 'guide' && (
-          <div className="sd-stack">
-            <Blueprint config={bpConfig} examName={examName} />
-            <section className="hm-tips" aria-label="Exam tips">
-              <div className="hm-head"><h2>Exam-day playbook</h2></div>
-              <div className="hm-tip-grid">
-                {tips.map(([t, d], i) => <div className="hm-tip" key={t}><b aria-hidden="true">{['①', '②', '③', '④'][i]}</b><div><h4>{t}</h4><p>{d}</p></div></div>)}
-                {stats?.completed > 0 && stats.weakest && <div className="hm-tip hm-focus"><b>!</b><div><h4>Focus next: {config?.sections[stats.weakest]?.short}</h4><p>Your lowest average section so far{stats.weakTopics?.[0] ? `, with ${stats.weakTopics[0].topic} the weakest topic` : ''}. Revise it before your next mock.</p></div></div>}
-              </div>
+              <dl className="nd-kv"><div><dt>Best score</dt><dd>{num(kBest)}<small>/{maxMarks}</small></dd></div><div><dt>Average</dt><dd>{num(kAvg)}%</dd></div><div><dt>Accuracy</dt><dd>{num(stats.avgAccuracy)}%</dd></div></dl>
+              {targetPct != null && <div className="nd-target"><div><span>Target {user.targetScore}</span><span>{targetPct}%</span></div><i><u style={{ width: `${targetPct}%` }} /></i></div>}
             </section>
-          </div>
-        )}
+            {weak.length > 0 && <section className="nd-card"><h3>Focus on these</h3>
+              <ul className="nd-weak">{weak.map((t) => <li key={t.topic + t.section}><div><span>{t.topic}</span><b>{t.accuracy}%</b></div><i><u style={{ width: `${t.accuracy}%` }} /></i></li>)}</ul>
+              {lastDone && <Link className="nd-more" to={`/review/${lastDone.id}?filter=incorrect`}>Review last mock’s mistakes</Link>}</section>}
+            <section className="nd-card"><h3>This week</h3>
+              <div className="nd-week"><div className="nd-streak"><b>{streak}</b><span>day streak</span></div>
+                <ol aria-label="Last 7 days">{week.map((d, i) => <li key={i} className={`${d.on ? 'on' : ''} ${d.today ? 'today' : ''}`}><i /><span>{d.l}</span></li>)}</ol></div></section>
+          </> : <section className="nd-card nd-how"><h3>How it works</h3>
+            <ol><li><b>Take a full mock</b><span>Real exam timing and sectional locks.</span></li><li><b>Get your analysis</b><span>Scores, accuracy and weak topics.</span></li><li><b>Practise and improve</b><span>Targeted sets built from your mistakes.</span></li></ol></section>}
+          {hist.length > 0 && <section className="nd-card"><h3>Recent results</h3>
+            <ul className="nd-recent">{examHist.slice(0, 3).map((h) => <li key={h.id}><div><b>{h.mockName.replace('CGL Tier-II ', '')}</b><small>{fmtDate(h.submittedAt)}</small></div><span>{h.score}<small>/{h.maxMarks}</small></span><Link to={`/results/${h.id}`}>Analysis</Link></li>)}</ul></section>}
+        </aside>
+      </div>
+
+      <div className="nd-more-wrap">
+        {hasData && <details className="nd-details"><summary><span>Detailed analysis</span><small>Skills, study plan, score trend, activity and full history</small></summary>
+          <div className="ix-grid">
+            <ReadinessGauge r={readiness} /><SkillRadar sections={stats.sections} />
+            <div className="ix-plan"><StudyPlanner stats={stats} nextMock={nextMock} mocksLeft={mocks.filter((m) => m.status === 'not_attempted').length} daysLeft={daysLeft} lastId={lastDone?.id} sectionName={config?.sections[stats.weakest]?.short} /></div>
+            <Trajectory trend={stats.trend} target={user.targetScore} maxMarks={maxMarks} />
+            <div className="ix-full"><ActivityMap stamps={stats.activity} /></div>
+            {examHist.length > 0 && <div className="ix-full"><h3>Attempt history</h3><div className="tbl-wrap card nopad"><table className="dtable hist">
+              <thead><tr><th>Test</th><th>Date</th><th>Score</th><th>Accuracy</th><th>Computer</th><th>Time</th><th /></tr></thead>
+              <tbody>{examHist.map((h) => <tr key={h.id}><th scope="row">{h.mockName}</th><td>{fmtDate(h.submittedAt)}</td><td>{h.score}/{h.maxMarks}</td><td>{h.accuracy}%</td><td>{h.qualified === null || h.qualified === undefined ? '–' : <span className={`qchip ${h.qualified ? 'q-pass' : 'q-fail'}`}>{h.qualified ? 'Qualified' : 'Not qualified'}</span>}</td><td>{duration(h.timeTakenSec)}</td><td><Link to={`/results/${h.id}`}>Analysis</Link> · <Link to={`/review/${h.id}`}>Review</Link> · <PdfMenu id={h.id} compact /></td></tr>)}</tbody>
+            </table></div></div>}
+          </div></details>}
+        <details className="nd-details"><summary><span>Exam guide</span><small>Paper pattern, marking and exam-day tips</small></summary>
+          <div className="nd-guide"><Blueprint config={bpConfig} examName={examName} />
+            <div className="hm-tip-grid">{tips.map(([t, d], i) => <div className="hm-tip" key={t}><b aria-hidden="true">{['①', '②', '③', '④'][i]}</b><div><h4>{t}</h4><p>{d}</p></div></div>)}</div></div></details>
+        {stats?.completed ? <ToolTiles /> : null}
       </div>
     </div>
   );
