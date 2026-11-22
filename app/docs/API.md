@@ -103,3 +103,7 @@ Admin: `GET /api/admin/cohorts`, `POST /api/admin/cohorts/nudge` (`{segment,titl
 - `GET /admin/attention`, `POST /admin/users/bulk {ids, action: suspend|activate|sign-out}`.
 - `GET /admin/config/export`, `POST /admin/config/import`.
 - Students get `503 {code:'MAINTENANCE'}` or `403 {code:'FEATURE_OFF'}`; `/public/site` includes `maintenance`, `maintenanceMessage`, `signupsOpen`, `features`.
+
+## v14 (admin only)
+- `GET /admin/credentials` groups and fields (secrets show only a hint). `PUT /admin/credentials {values, clear}`. `POST /admin/credentials/test/:group {to}` for email, sms, whatsapp, ai.
+- `/admin/site` limits now include `sessionDays, sessionHours, otpMinutes, otpPerHour, otpMaxWrong, minPassword`; `/public/site` includes `minPassword`.

@@ -1,6 +1,7 @@
 // Notifications: in-app inbox, web push (free) and email. One place decides who may be contacted, how often and how it is logged.
 import { siteOf, limitsOf } from './site.js';
 import crypto from 'node:crypto';
+import { on } from './credentials.js';
 
 export const defaultPrefs = { inapp: true, push: true, email: true, whatsapp: false, digest: true, events: true };
 export const prefsOf = (u) => { try { return { ...defaultPrefs, ...JSON.parse(u?.notify_prefs || '{}') }; } catch { return { ...defaultPrefs }; } };
@@ -114,7 +115,7 @@ export function createNotifier({ db, now, settings, mailer = null, pusher = null
       }
     }
     if (ch.email && prefs.email && u.email) {
-      if (!mailer) { out.email = 'not configured'; log(userId, 'email', kind, ref, 'skipped', 'email not set up'); }
+      if (!on(mailer)) { out.email = 'not configured'; log(userId, 'email', kind, ref, 'skipped', 'email not set up'); }
       else if (overCap) { out.email = 'skipped'; log(userId, 'email', kind, ref, 'skipped', overCap); }
       else if (emailsToday() >= emailDailyCap()) { out.email = 'skipped'; log(userId, 'email', kind, ref, 'skipped', 'daily email cap'); }
       else {
@@ -128,7 +129,7 @@ export function createNotifier({ db, now, settings, mailer = null, pusher = null
     }
     if (ch.whatsapp) {
       const wc = waCfg();
-      if (!whatsapp || !wc.enabled) out.whatsapp = 'not configured';
+      if (!on(whatsapp) || !wc.enabled) out.whatsapp = 'not configured';
       else if (!prefs.whatsapp || !u.phone) out.whatsapp = 'none';
       else if (kind !== 'campaign' && !wc.kinds.includes(kind)) out.whatsapp = 'none';
       else if (capped && waWeekly(userId) >= wc.weeklyCap) { out.whatsapp = 'skipped'; log(userId, 'whatsapp', kind, ref, 'skipped', 'weekly WhatsApp limit'); }
@@ -141,5 +142,5 @@ export function createNotifier({ db, now, settings, mailer = null, pusher = null
   }
   /** Run `fn` over items a few at a time so one slow mail server does not stall everything. */
   async function pool(items, size, fn) { let i = 0; const run = async () => { while (i < items.length) { const k = items[i++]; await fn(k); } }; await Promise.all(Array.from({ length: Math.min(size, items.length) }, run)); }
-  return { siteName: () => siteOf(settings).name, notify, pool, token, tokenOk, unsubUrl, sig, sigOk, trackedPath, waCfg, hasMailer: !!mailer, hasPush: !!pusher, hasWhatsApp: !!whatsapp, whatsappProvider: whatsapp?.provider || null, emailDailyCap, publicKey: pusher ? () => pusher.publicKey() : undefined };
+  return { siteName: () => siteOf(settings).name, notify, pool, token, tokenOk, unsubUrl, sig, sigOk, trackedPath, waCfg, get hasMailer() { return on(mailer); }, hasPush: !!pusher, get hasWhatsApp() { return on(whatsapp); }, get whatsappProvider() { return on(whatsapp) ? whatsapp.provider || null : null; }, emailDailyCap, publicKey: pusher ? () => pusher.publicKey() : undefined };
 }

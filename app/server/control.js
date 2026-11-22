@@ -2,11 +2,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import { cleanControls, controlsOf, FEATURES } from './lib/controls.js';
+import { on } from './lib/credentials.js';
 
 const DAY = 86400000;
 const SECRET_KEYS = new Set(['secret', 'vapid', 'whatsapp', 'backup_last']);
 
-export function mountControl({ r, db, now, audit, bad, settings, notifier, mailer, jobs, metrics, controlsCache, recentErrors }) {
+export function mountControl({ r, db, now, audit, bad, settings, notifier, mailer, creds, live, drafter, otpSender, whatsapp, jobs, metrics, controlsCache, recentErrors }) {
   // ----- switches -----
   r.get('/controls', (req, res) => res.json({ controls: controlsOf(settings), features: FEATURES, yourIp: req.ip }));
   r.put('/controls', (req, res) => {
@@ -64,20 +65,37 @@ export function mountControl({ r, db, now, audit, bad, settings, notifier, maile
 
   // ----- integrations (what is connected; secrets are never sent) -----
   r.get('/integrations', (req, res) => {
-    const env = process.env; const wa = settings.get('whatsapp', {});
+    const env = live.env; const wa = settings.get('whatsapp', {});
     res.json({ items: [
-      { key: 'email', name: 'Email (SMTP)', on: !!mailer, detail: mailer ? `${env.SMTP_HOST}:${env.SMTP_PORT || 587}, from ${env.MAIL_FROM || env.SMTP_USER || 'not set'}` : 'Not set. Add SMTP_* values to the server settings.', test: true, used: 'Sign-in codes, reminders, digests, broadcasts' },
-      { key: 'sms', name: 'SMS sign-in codes', on: !!env.SMS_PROVIDER, detail: env.SMS_PROVIDER ? `Provider: ${env.SMS_PROVIDER}` : 'Not set. Mobile sign-in is off.', used: 'Mobile number sign-in' },
-      { key: 'whatsapp', name: 'WhatsApp', on: !!notifier.hasWhatsApp, detail: notifier.hasWhatsApp ? `Provider: ${notifier.whatsappProvider || wa.provider || 'set'}` : 'Not set. Configure in Settings.', used: 'Reminders and broadcasts by WhatsApp' },
+      { key: 'email', name: 'Email (SMTP)', on: on(mailer), detail: on(mailer) ? `${env.SMTP_HOST}:${env.SMTP_PORT || 587}, from ${env.MAIL_FROM || env.SMTP_USER || 'not set'}` : 'Not set. Fill in the form below.', test: true, used: 'Sign-in codes, reminders, digests, broadcasts' },
+      { key: 'sms', name: 'SMS sign-in codes', on: !!env.SMS_PROVIDER, detail: env.SMS_PROVIDER ? `Provider: ${env.SMS_PROVIDER}` : 'Not set. Mobile number sign-in is off.', used: 'Mobile number sign-in' },
+      { key: 'whatsapp', name: 'WhatsApp', on: !!notifier.hasWhatsApp, detail: notifier.hasWhatsApp ? `Provider: ${notifier.whatsappProvider || wa.provider || 'set'}` : 'Not set. Fill in the form below.', used: 'Reminders and broadcasts by WhatsApp' },
       { key: 'push', name: 'Browser notifications', on: !!notifier.hasPush, detail: notifier.hasPush ? 'Ready. Needs HTTPS in the browser.' : 'Not available', used: 'Push reminders' },
-      { key: 'ai', name: 'AI solution drafts', on: !!(env.ANTHROPIC_API_KEY || env.OPENAI_API_KEY || env.AI_API_KEY), detail: `Daily cap ${settings.get('ai', {}).dailyCap ?? 'default'}`, used: 'Question solutions in the content tools' },
+      { key: 'ai', name: 'AI solution drafts', on: on(drafter), detail: `${drafter?.provider === 'openai' ? 'OpenAI' : 'Anthropic'} · ${drafter?.model || 'no key'} · daily cap ${settings.get('ai', {}).dailyCap ?? 'default'}`, used: 'Question solutions in the content tools' },
     ] });
   });
   r.post('/integrations/test-email', async (req, res) => {
-    if (!mailer) return bad(res, 'Email is not set up on this server.'); const to = String(req.body?.to || req.user.email || '').trim();
+    if (!on(mailer)) return bad(res, 'Email is not set up yet. Add the SMTP details above first.'); const to = String(req.body?.to || req.user.email || '').trim();
     if (!/^\S+@\S+\.\S+$/.test(to)) return bad(res, 'Enter an email address to send the test to.');
     try { await mailer.send({ to, subject: `Test email from ${notifier.siteName()}`, text: 'Email is working. You can ignore this message.' }); audit(req, 'test_email', to); res.json({ ok: true, to }); }
     catch (e) { res.status(502).json({ error: `Could not send: ${String(e.message || e).slice(0, 200)}` }); }
+  });
+
+  // ----- keys and connection details typed in by the admin (encrypted; secrets are never sent back) -----
+  r.get('/credentials', (req, res) => res.json({ groups: creds.view() }));
+  r.put('/credentials', (req, res) => {
+    try { const changed = creds.update(req.body?.values, req.body?.clear); audit(req, 'credentials_update', '', changed.join(', ').slice(0, 200) || 'no change'); res.json({ ok: true, changed, groups: creds.view() }); }
+    catch (e) { bad(res, e.message); }
+  });
+  r.post('/credentials/test/:group', async (req, res) => {
+    const to = String(req.body?.to || '').trim(); const g = req.params.group;
+    try {
+      if (g === 'email') { if (!on(mailer)) return bad(res, 'Email is not set up yet.'); if (!/^\S+@\S+\.\S+$/.test(to)) return bad(res, 'Enter an email address to send the test to.'); await mailer.send({ to, subject: `Test email from ${notifier.siteName()}`, text: 'Email is working. You can ignore this message.' }); return res.json({ ok: true, message: `Test email sent to ${to}` }); }
+      if (g === 'sms') { if (!live.env.SMS_PROVIDER) return bad(res, 'Choose an SMS provider first.'); if (!/^\+\d{8,15}$/.test(to)) return bad(res, 'Enter a phone number with country code, like +919876543210.'); await otpSender({ channel: 'sms', to, code: '000000', brand: notifier.siteName() }); return res.json({ ok: true, message: `Test SMS sent to ${to}. The code in it is a test.` }); }
+      if (g === 'whatsapp') { if (!on(whatsapp)) return bad(res, 'WhatsApp is not fully set up yet. Check every field for the chosen provider.'); if (!/^\+?\d{8,15}$/.test(to)) return bad(res, 'Enter a phone number with country code.'); await whatsapp.send(to, { title: 'Test message', text: `WhatsApp is working on ${notifier.siteName()}.` }); return res.json({ ok: true, message: `Test message sent to ${to}` }); }
+      if (g === 'ai') { if (!on(drafter)) return bad(res, 'Add an AI key first.'); const out = await drafter.ask('Reply with the single word: ready', 20); return res.json({ ok: true, message: `The AI answered: ${String(out).slice(0, 60) || '(empty reply)'}` }); }
+      return bad(res, 'Nothing to test for this service.');
+    } catch (e) { res.status(502).json({ error: `Test failed: ${String(e.message || e).slice(0, 220)}` }); }
   });
 
   // ----- what needs attention (powers the dashboard strip) -----

@@ -35,12 +35,16 @@ export function limitsOf(settings, env = process.env) {
     doubtPerDay: n(s.doubtPerDay, Number(env.MOCKDESK_DOUBT_PER_DAY) || 80, 1, 2000),
     doubtChat: s.doubtChat === undefined ? env.MOCKDESK_DOUBT_CHAT !== 'off' : !!s.doubtChat,
     emailDailyCap: n(s.emailDailyCap, Number(env.MOCKDESK_EMAIL_DAILY_CAP) || 2000, 0, 1000000),
+    sessionDays: n(s.sessionDays, 60, 1, 365), sessionHours: n(s.sessionHours, 12, 1, 72),
+    otpMinutes: n(s.otpMinutes, 10, 3, 60), otpPerHour: n(s.otpPerHour, 5, 1, 30), otpMaxWrong: n(s.otpMaxWrong, 5, 3, 10), minPassword: n(s.minPassword, 8, 6, 32),
     timezone: validZone(s.timezone) ? s.timezone : (validZone(env.MOCKDESK_TZ) ? env.MOCKDESK_TZ : 'Asia/Kolkata'),
   };
 }
 export const validZone = (z) => { if (!z || typeof z !== 'string') return false; try { new Intl.DateTimeFormat('en', { timeZone: z }); return true; } catch { return false; } };
 export function cleanLimits(b = {}) {
   const lim = { practicePerDay: Number(b.practicePerDay), doubtPerHour: Number(b.doubtPerHour), doubtPerDay: Number(b.doubtPerDay), emailDailyCap: Number(b.emailDailyCap) };
+  const dflt = { sessionDays: 60, sessionHours: 12, otpMinutes: 10, otpPerHour: 5, otpMaxWrong: 5, minPassword: 8 };
+  for (const [k, [lo, hi]] of Object.entries({ sessionDays: [1, 365], sessionHours: [1, 72], otpMinutes: [3, 60], otpPerHour: [1, 30], otpMaxWrong: [3, 10], minPassword: [6, 32] })) { lim[k] = b[k] === undefined ? dflt[k] : Number(b[k]); if (!(lim[k] >= lo && lim[k] <= hi)) throw new Error(`${k} must be between ${lo} and ${hi}`); }
   for (const [k, [lo, hi]] of Object.entries({ practicePerDay: [1, 100], doubtPerHour: [1, 500], doubtPerDay: [1, 2000], emailDailyCap: [0, 1000000] })) if (!(lim[k] >= lo && lim[k] <= hi)) throw new Error(`${k} must be between ${lo} and ${hi}`);
   if (!validZone(b.timezone)) throw new Error('Unknown time zone. Use a name like Asia/Kolkata');
   return { ...lim, doubtChat: !!b.doubtChat, timezone: b.timezone };

@@ -21,6 +21,7 @@ import { makeFeatures2 } from './features2.js';
 import { makeSettings } from './lib/settings.js';
 import { mountShare, mountSharePublic } from './share.js';
 import { makeDrafter } from './lib/drafter.js';
+import { makeLiveEnv, makeCredentials, lazy } from './lib/credentials.js';
 import { makeMailer, makePusher, makeWhatsApp, createNotifier } from './lib/notify.js';
 import { runReminders, reminderConfig, setTimezone } from './lib/reminders.js';
 import { digestRunner } from './lib/digest.js';
@@ -36,8 +37,6 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const GRACE_MS = 5000;
 // Dev/testing only: MOCKDESK_TIME_SCALE=0.02 shortens every section timer (e.g. 30 min -> 36 s).
 const SCALE = Number(process.env.MOCKDESK_TIME_SCALE) > 0 ? Number(process.env.MOCKDESK_TIME_SCALE) : 1;
-const SESSION_MS = 60 * 24 * 3600 * 1000;      // "Keep me signed in": the browser stays signed in for 60 days
-const SHORT_SESSION_MS = 12 * 3600 * 1000;      // not ticked: signed out when the browser closes, or after 12 hours
 const INSTRUCTIONS = [
   'The paper has five sections: Mathematical Abilities, Reasoning, English, General Awareness and Computer Knowledge.',
   'Each section has its own countdown. When it ends, answers are saved and submitted automatically and the next section opens.',
@@ -52,7 +51,7 @@ const INSTRUCTIONS = [
 const hashPw = (pw, salt) => crypto.scryptSync(pw, salt, 64).toString('hex');
 const iso = (ms) => new Date(ms).toISOString();
 
-export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INCOMPLETE === '1', now = () => Date.now(), serveClient = true, otpSender = makeSender(), mailer = makeMailer(), whatsapp = makeWhatsApp(), drafter = makeDrafter() } = {}) {
+export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INCOMPLETE === '1', now = () => Date.now(), serveClient = true, otpSender, mailer, whatsapp, drafter, credKeyFile } = {}) {
   const app = express();
   app.use(compression()); // results are about 250 KB of JSON; gzip makes that about 30 KB and cuts the data-transfer bill
   app.use(express.json({ limit: '1mb' }));
@@ -64,11 +63,18 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
   db.prepare("INSERT OR IGNORE INTO mocks(id,number,name,difficulty,description,status,tags,source,created_at,updated_at) VALUES ('practice',0,'Practice set','moderate','Personalised practice (hidden)','archived','[]','practice',?,?)").run(now(), now());
   const exams = makeExams(db);
   const settings = makeSettings(db);
+  // Keys typed into Admin > Integrations are applied as an overlay on the server settings, so no restart is needed.
+  const live = makeLiveEnv(); const dbFile = db.prepare('PRAGMA database_list').get()?.file || '';
+  const creds = makeCredentials({ settings, live, keyFile: credKeyFile ?? (dbFile ? path.join(path.dirname(dbFile), '.mockdesk-key') : null) });
+  if (otpSender === undefined) otpSender = makeSender(live.env);
+  if (mailer === undefined) mailer = lazy(makeMailer, live.env, ['SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_PASS', 'MAIL_FROM']);
+  if (whatsapp === undefined) whatsapp = lazy(makeWhatsApp, live.env, ['WHATSAPP_PROVIDER', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_ID', 'WHATSAPP_TEMPLATE', 'WHATSAPP_LANG', 'WHATSAPP_FROM', 'WHATSAPP_CONTENT_SID', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN']);
+  if (drafter === undefined) drafter = lazy(makeDrafter, live.env, ['AI_PROVIDER', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'MOCKDESK_AI_MODEL'], ['ask']);
   const controls = makeControlsCache(settings, now); const metrics = makeMetrics(now); const jobs = makeJobs(now);
   app.jobs = jobs; app.metrics = metrics;
   app.use('/api', metrics.middleware);
   app.use('/api', (req, res, next) => (ipBlocked(req.ip, controls().blockedIps) ? res.status(403).json({ error: 'Access from this network is blocked.', code: 'BLOCKED' }) : next()));
-  const notifier = createNotifier({ db, now, settings, mailer, pusher: makePusher(settings), whatsapp });
+  const notifier = createNotifier({ db, now, settings, mailer, pusher: makePusher(settings, live.env), whatsapp });
   const cache = new Map();
   const invalidate = () => { cache.clear(); snaps.clear(); };
   const hydrate = ({ meta, questions, segments, sectionsCfg, complete }) => ({ meta, questions, segments, sectionsCfg, complete, byId: new Map(questions.map((q) => [q.id, q])) });
@@ -122,7 +128,7 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
   } catch { /* logging must never block a sign-in */ } };
   function startSession(res, userId, remember = true) {
     if (res.req) logLogin(res.req, userId, true, db.prepare('SELECT COALESCE(email,phone) w FROM users WHERE id=?').get(userId)?.w);
-    const sid = crypto.randomBytes(32).toString('hex'); const ms = remember ? SESSION_MS : SHORT_SESSION_MS;
+    const sid = crypto.randomBytes(32).toString('hex'); const L = limitsOf(settings); const ms = remember ? L.sessionDays * 24 * 3600 * 1000 : L.sessionHours * 3600 * 1000;
     db.prepare('INSERT INTO sessions VALUES (?,?,?)').run(sid, userId, now() + ms);
     res.setHeader('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Lax; Path=/${remember ? `; Max-Age=${ms / 1000}` : ''}${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
   }
@@ -150,7 +156,7 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
     const { name, email, password } = req.body || {};
     if (!name || !String(name).trim()) return res.status(400).json({ error: 'Name is required' });
     if (!/^\S+@\S+\.\S+$/.test(email || '')) return res.status(400).json({ error: 'Enter a valid email' });
-    if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    if (typeof password !== 'string' || password.length < limitsOf(settings).minPassword) return res.status(400).json({ error: `Password must be at least ${limitsOf(settings).minPassword} characters` });
     const mail = email.trim().toLowerCase();
     { const e = signupBlock(mail); if (e) return res.status(403).json({ error: e, code: 'SIGNUPS_CLOSED' }); }
     if (db.prepare('SELECT 1 FROM users WHERE email=?').get(mail)) return res.status(409).json({ error: 'An account with this email already exists' });
@@ -182,13 +188,13 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
     const key = `${channel}:${id}`, t = now(); const row = db.prepare('SELECT * FROM otps WHERE key=?').get(key);
     if (row && t - row.sent_at < OTP_COOLDOWN_MS) return res.status(429).json({ error: `Please wait ${Math.ceil((OTP_COOLDOWN_MS - (t - row.sent_at)) / 1000)} s before asking for another code`, code: 'COOLDOWN', retryIn: Math.ceil((OTP_COOLDOWN_MS - (t - row.sent_at)) / 1000) });
     const fresh = !row || t - row.window_start > 3600000; const count = fresh ? 0 : row.sent_count;
-    if (count >= OTP_MAX_PER_HOUR) return res.status(429).json({ error: 'Too many codes requested. Try again in an hour.', code: 'HOURLY' });
+    if (count >= limitsOf(settings).otpPerHour) return res.status(429).json({ error: 'Too many codes requested. Try again in an hour.', code: 'HOURLY' });
     const code = newCode(), salt = crypto.randomBytes(16).toString('hex');
     try { await otpSender({ channel, to: id, code, brand: notifier.siteName() }); }
     catch (e) { console.error('OTP delivery failed:', e.message); recordError('otp', e.message); return res.status(e.code === 'OTP_NOT_CONFIGURED' ? 503 : 502).json({ error: e.code === 'OTP_NOT_CONFIGURED' ? 'Code delivery is not set up on this server' : 'Could not send the code. Try again shortly.' }); }
-    db.prepare('INSERT OR REPLACE INTO otps(key,salt,code_hash,expires_at,wrong,sent_at,window_start,sent_count) VALUES (?,?,?,?,0,?,?,?)').run(key, salt, hashCode(code, salt), t + OTP_TTL_MS, t, fresh ? t : row.window_start, count + 1);
+    db.prepare('INSERT OR REPLACE INTO otps(key,salt,code_hash,expires_at,wrong,sent_at,window_start,sent_count) VALUES (?,?,?,?,0,?,?,?)').run(key, salt, hashCode(code, salt), t + limitsOf(settings).otpMinutes * 60000, t, fresh ? t : row.window_start, count + 1);
     const exists = !!db.prepare(`SELECT 1 FROM users WHERE ${channel === 'email' ? 'email' : 'phone'}=?`).get(id);
-    res.json({ ok: true, exists, channel, to: maskId(channel, id), resendIn: OTP_COOLDOWN_MS / 1000, expiresIn: OTP_TTL_MS / 1000 });
+    res.json({ ok: true, exists, channel, to: maskId(channel, id), resendIn: OTP_COOLDOWN_MS / 1000, expiresIn: limitsOf(settings).otpMinutes * 60 });
   });
   api.post('/auth/otp/verify', (req, res) => {
     if (limited(req, res)) return;
@@ -199,9 +205,9 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
     const key = `${channel}:${id}`, row = db.prepare('SELECT * FROM otps WHERE key=?').get(key);
     if (!row || row.expires_at < now()) { if (row) db.prepare('DELETE FROM otps WHERE key=?').run(key); return res.status(400).json({ error: 'This code has expired. Ask for a new one.', code: 'EXPIRED' }); }
     if (!codeMatches(code, row.salt, row.code_hash)) {
-      if (row.wrong + 1 >= OTP_MAX_WRONG) { db.prepare('DELETE FROM otps WHERE key=?').run(key); return res.status(429).json({ error: 'Too many wrong codes. Ask for a new one.', code: 'LOCKED' }); }
+      if (row.wrong + 1 >= limitsOf(settings).otpMaxWrong) { db.prepare('DELETE FROM otps WHERE key=?').run(key); return res.status(429).json({ error: 'Too many wrong codes. Ask for a new one.', code: 'LOCKED' }); }
       db.prepare('UPDATE otps SET wrong=wrong+1 WHERE key=?').run(key); logLogin(req, null, false, id, 'wrong code');
-      return res.status(401).json({ error: `Incorrect code. ${OTP_MAX_WRONG - row.wrong - 1} tries left.` });
+      return res.status(401).json({ error: `Incorrect code. ${limitsOf(settings).otpMaxWrong - row.wrong - 1} tries left.` });
     }
     const col = channel === 'email' ? 'email' : 'phone';
     let u = db.prepare(`SELECT * FROM users WHERE ${col}=?`).get(id), isNew = false;
@@ -242,7 +248,7 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
   let pubCache = { at: 0, body: null };
   mountSharePublic(api, { db, now });
   setTimezone(limitsOf(settings).timezone);
-  api.get('/public/site', (req, res) => { const s = siteOf(settings); res.setHeader('Cache-Control', 'public, max-age=60'); res.json({ name: s.name, tagline: s.tagline, heroTitle: s.heroTitle, heroText: s.heroText, supportEmail: s.supportEmail, supportPhone: s.supportPhone, disclaimer: s.disclaimer, faq: s.faq, maintenance: controls().maintenance.mode, maintenanceMessage: controls().maintenance.message, signupsOpen: controls().signups.open, signupDomains: controls().signups.domains, features: controls().features }); });
+  api.get('/public/site', (req, res) => { const s = siteOf(settings); res.setHeader('Cache-Control', 'public, max-age=60'); res.json({ name: s.name, tagline: s.tagline, heroTitle: s.heroTitle, heroText: s.heroText, supportEmail: s.supportEmail, supportPhone: s.supportPhone, disclaimer: s.disclaimer, faq: s.faq, minPassword: limitsOf(settings).minPassword, maintenance: controls().maintenance.mode, maintenanceMessage: controls().maintenance.message, signupsOpen: controls().signups.open, signupDomains: controls().signups.domains, features: controls().features }); });
   api.get('/public/overview', (req, res) => {
     if (!pubCache.body || Date.now() - pubCache.at > 60000) {
       const mocks = [];
@@ -618,7 +624,7 @@ export function createApp(db, { allowIncomplete = process.env.MOCKDESK_ALLOW_INC
   jobs.reg('campaigns', 'Message campaigns', 'every 10 min', () => runCampaigns({ db, notifier, now }));
   jobs.reg('backup', 'Database backup', 'every 10 min (runs when due)', () => { const b = runBackup({ db, now, settings }); return b ? `Saved ${b.name}` : 'Not due yet'; });
   jobs.reg('cleanup', 'Tidy expired sign-ins and codes', 'every 10 min', () => { const t = now(); db.prepare('DELETE FROM sessions WHERE expires_at<?').run(t); db.prepare("DELETE FROM otps WHERE expires_at<? AND expires_at>0").run(t - 86400000); db.prepare('DELETE FROM login_log WHERE at<?').run(t - 90 * 86400000); });
-  api.use('/admin', (req, res, next) => (['admin', 'editor'].includes(req.user.role) ? next() : res.status(403).json({ error: 'Admin access only' })), adminRouter({ drafter, db, now, invalidate, getMock, readResult, hashPw, iso, settings, notifier, features, features2, exams, runReminders: runRem, mailer, jobs, metrics, controls }));
+  api.use('/admin', (req, res, next) => (['admin', 'editor'].includes(req.user.role) ? next() : res.status(403).json({ error: 'Admin access only' })), adminRouter({ drafter, db, now, invalidate, getMock, readResult, hashPw, iso, settings, notifier, features, features2, exams, runReminders: runRem, mailer, jobs, metrics, controls, creds, live, otpSender, whatsapp }));
 
   api.use((req, res) => res.status(404).json({ error: 'Not found' }));
   app.use('/api', api);

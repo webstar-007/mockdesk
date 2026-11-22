@@ -130,3 +130,9 @@ The menu has eight sections. Each has tabs at the top. All old page addresses st
 | Settings | Site, limits and everything else |
 
 Staff only see the sections and tabs their access allows. The dashboard's "Needs your attention" merges server alerts, student reports, suspect questions and inactive students into one list.
+
+## v14: Keys and settings from the admin panel
+- **Server > Integrations:** type the details for Email (SMTP), SMS (Twilio or MSG91), WhatsApp (Meta or Twilio), AI model (Anthropic or OpenAI, plus model name) and browser notification contact. Save applies at once, no restart. Use **Send a test** or **Test the key** to check.
+- Secrets are encrypted, never shown again (only the last 4 characters), and **Remove** deletes one. Leave a secret box empty to keep the saved value. A value saved here overrides the server setting; delete it to fall back.
+- The encryption key is `data/.mockdesk-key`. Copy it with your backups (or set `MOCKDESK_SECRET_KEY`). Without it a restored database cannot decrypt saved keys; just type them again.
+- **Settings > Site and limits > Sign-in and security:** stay-signed-in days, short session hours, code validity, codes per hour, wrong tries, shortest password.

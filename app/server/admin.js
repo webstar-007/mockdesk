@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import examConfig from '../config/exam.config.js';
 import { svgProblem, validateDbMock } from './lib/bank.js';
 import { adminsFile, readAdmins } from './lib/admins.js';
+import { limitsOf } from './lib/site.js';
 import { recentErrors, clearErrors, startedAt, recordError } from './lib/health.js';
 import { answerAsk, EXAMPLES } from './lib/ask.js';
 import { mountAdminExtras } from './adminExtras.js';
@@ -67,7 +68,7 @@ export function cleanQuestion(body, { partial = false, strictOptions = false } =
   return { section, q, errors };
 }
 
-export function adminRouter({ drafter = null, db, now, invalidate, getMock, readResult, hashPw, settings, notifier, features, features2, runReminders, exams, mailer = null, jobs, metrics, controls }) {
+export function adminRouter({ drafter = null, db, now, invalidate, getMock, readResult, hashPw, settings, notifier, features, features2, runReminders, exams, mailer = null, jobs, metrics, controls, creds, live, otpSender, whatsapp = null }) {
   const r = express.Router();
   // Admins can do everything. Staff (role "editor") get the content tools plus whatever permissions an admin ticked for them.
   r.use((req, res, next) => {
@@ -219,7 +220,7 @@ export function adminRouter({ drafter = null, db, now, invalidate, getMock, read
   r.post('/users/:id/signout', (req, res) => { const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id); if (!u) return bad(res, 'User not found', 404); const c = db.prepare('DELETE FROM sessions WHERE user_id=?').run(u.id).changes; audit(req, 'user_signout', u.email || u.phone, `${c} sessions`); res.json({ ok: true, sessions: Number(c) }); });
   r.post('/users/:id/password', (req, res) => {
     const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id); if (!u) return bad(res, 'User not found', 404);
-    const pw = String(req.body?.password || ''); if (pw.length < 8) return bad(res, 'Password must be at least 8 characters');
+    const pw = String(req.body?.password || ''); if (pw.length < limitsOf(settings).minPassword) return bad(res, `Password must be at least ${limitsOf(settings).minPassword} characters`);
     const salt = crypto.randomBytes(16).toString('hex'); db.prepare('UPDATE users SET salt=?, hash=? WHERE id=?').run(salt, hashPw(pw, salt), u.id); db.prepare('DELETE FROM sessions WHERE user_id=?').run(u.id);
     audit(req, 'user_password_reset', u.email || u.phone); res.json({ ok: true });
   });
@@ -671,7 +672,7 @@ export function adminRouter({ drafter = null, db, now, invalidate, getMock, read
     const size = (f) => { try { return fs.statSync(f).size; } catch { return 0; } };
     let disk = null; try { const st = fs.statfsSync(dbFile ? path.dirname(dbFile) : os.tmpdir()); disk = { total: st.blocks * st.bsize, free: st.bavail * st.bsize }; } catch { /* not supported */ }
     const up = dirSize(UPLOAD_DIR); const errs = recentErrors(); const backup = db.prepare("SELECT at FROM audit WHERE action='backup_download' ORDER BY id DESC LIMIT 1").get();
-    const prod = process.env.NODE_ENV === 'production'; const smtp = !!process.env.SMTP_HOST; const sms = process.env.SMS_PROVIDER || '';
+    const prod = process.env.NODE_ENV === 'production'; const smtp = !!live.env.SMTP_HOST; const sms = live.env.SMS_PROVIDER || '';
     const https = !!(req.secure || String(req.headers['x-forwarded-proto'] || '').includes('https'));
     const mem = process.memoryUsage();
     const counts = { students: db.prepare("SELECT COUNT(*) c FROM users WHERE COALESCE(role,'student')='student'").get().c, attempts: db.prepare('SELECT COUNT(*) c FROM attempts').get().c, inProgress: db.prepare("SELECT COUNT(*) c FROM attempts WHERE status='in_progress'").get().c, questions: db.prepare('SELECT COUNT(*) c FROM questions').get().c, sessions: db.prepare('SELECT COUNT(*) c FROM sessions WHERE expires_at>?').get(t).c };
@@ -701,7 +702,7 @@ export function adminRouter({ drafter = null, db, now, invalidate, getMock, read
   });
 
   mountAdminExtras({ r, db, now, audit, bad, results, settings, notifier, features, runReminders, page });
-  mountControl({ r, db, now, audit, bad, settings, notifier, mailer, jobs, metrics, controlsCache: controls, recentErrors });
+  mountControl({ r, db, now, audit, bad, settings, notifier, mailer, creds, live, drafter, otpSender, whatsapp, jobs, metrics, controlsCache: controls, recentErrors });
   mountOps({ r, db, now, audit, bad, results, settings, notifier, page });
   mountContent({ r, db, now, audit, bad, settings, drafter, cleanQuestion, saveQuestion, qOut });
   r.use((req, res) => res.status(404).json({ error: 'Not found' }));

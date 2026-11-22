@@ -115,7 +115,7 @@ export default function AuthPage({ mode }) {
               {reg && <label>Full name<input autoFocus autoComplete="name" value={f.name} onChange={set('name')} placeholder="Your name" required /></label>}
               <label>Email<input autoFocus={!reg && !f.email} name="email" type="email" autoComplete={reg ? 'email' : 'username'} value={f.email} onChange={set('email')} placeholder="you@example.com" required /></label>
               <label>Password
-                <span className="pw"><input name="password" type={show ? 'text' : 'password'} autoComplete={reg ? 'new-password' : 'current-password'} value={f.password} onChange={set('password')} placeholder={reg ? 'At least 8 characters' : 'Your password'} required minLength={8} /><button type="button" className="pw-toggle" onClick={() => setShow(!show)} aria-pressed={show}>{show ? 'Hide' : 'Show'}</button></span>
+                <span className="pw"><input name="password" type={show ? 'text' : 'password'} autoComplete={reg ? 'new-password' : 'current-password'} value={f.password} onChange={set('password')} placeholder={reg ? `At least ${site.minPassword || 8} characters` : 'Your password'} required minLength={reg ? (site.minPassword || 8) : 1} /><button type="button" className="pw-toggle" onClick={() => setShow(!show)} aria-pressed={show}>{show ? 'Hide' : 'Show'}</button></span>
               </label>
               <label className="check auth-keep"><input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /><span>Keep me signed in on this device<small className="muted"> Untick on a shared computer.</small></span></label>
               <button className="auth-submit" disabled={busy}>{busy ? 'Please wait…' : reg ? 'Create account' : 'Sign in'}</button>

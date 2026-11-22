@@ -54,6 +54,17 @@ function Site() {
           <label className="ad-chk"><input type="checkbox" checked={!!limits.doubtChat} onChange={(e) => upl('doubtChat', e.target.checked)} /> Let students ask the AI doubt assistant</label>
         </div>
       </section>
+      <section className="card" style={{ marginTop: 14 }}><h3>Sign-in and security</h3>
+        <p className="small muted">Applies to new sign-ins and new codes. People already signed in keep their current session.</p>
+        <div className="ad-grid g2">
+          <N k="sessionDays" label="Stay signed in for (days)" hint="When a student ticks Keep me signed in." />
+          <N k="sessionHours" label="Short session length (hours)" hint="When Keep me signed in is not ticked." />
+          <N k="otpMinutes" label="Sign-in code is valid for (minutes)" />
+          <N k="otpPerHour" label="Codes one person can ask for per hour" />
+          <N k="otpMaxWrong" label="Wrong code tries before the code is cancelled" />
+          <N k="minPassword" label="Shortest allowed password (characters)" />
+        </div>
+      </section>
       <Err>{bad}</Err>{msg && <p className="okmsg" role="status">{msg}</p>}
       <div style={{ marginTop: 14 }}><button className="btn btn-primary" disabled={busy} onClick={save}>Save changes</button></div>
     </>

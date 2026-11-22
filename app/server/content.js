@@ -1,4 +1,5 @@
 // Content tools for editors: import from Word or pasted text, find duplicates, and AI solution drafts that an editor approves.
+import { on } from './lib/credentials.js';
 import { docxLines } from './lib/docx.js';
 import { parseQuestions } from './lib/qparse.js';
 import { fingerprint, matchesFor, findPairs } from './lib/similar.js';
@@ -52,7 +53,7 @@ export function mountContent({ r, db, now, audit, bad, settings, drafter, cleanQ
   const needsDraft = (d) => !String(d.explanation || '').trim();
   async function draftOne(qid, by) {
     const row = db.prepare('SELECT * FROM questions WHERE id=?').get(qid); if (!row) { const e = new Error('Question not found'); e.status = 404; throw e; }
-    if (!drafter) { const e = new Error('AI drafts are not set up. Add ANTHROPIC_API_KEY to the server settings.'); e.status = 503; throw e; }
+    if (!on(drafter)) { const e = new Error('AI drafts are not set up. Add an AI key in Admin > Integrations.'); e.status = 503; throw e; }
     if (usedToday() >= cap()) { const e = new Error(`Daily limit of ${cap()} AI drafts reached. It resets in 24 hours.`); e.status = 429; throw e; }
     const q = parse(row.data); const d = await drafter.draft({ text: q.text, options: q.options, passage: q.passage });
     db.prepare("INSERT OR REPLACE INTO solution_drafts(question_id,data,ai_answer,model,status,created_at,created_by) VALUES (?,?,?,?, 'pending', ?, ?)").run(qid, JSON.stringify(d), d.aiAnswer, drafter.model, now(), by);
@@ -62,7 +63,7 @@ export function mountContent({ r, db, now, audit, bad, settings, drafter, cleanQ
   r.get('/drafts', (req, res) => {
     const mm = mocks(); const have = new Set(db.prepare("SELECT question_id FROM solution_drafts WHERE status='pending'").all().map((x) => x.question_id));
     const missing = db.prepare('SELECT id, mock_id, section, position, data FROM questions').all().filter((x) => !have.has(x.id) && needsDraft(parse(x.data)));
-    res.json({ available: !!drafter, model: drafter?.model || null, dailyCap: cap(), usedToday: usedToday(),
+    res.json({ available: on(drafter), model: on(drafter) ? drafter.model : null, dailyCap: cap(), usedToday: usedToday(),
       pending: db.prepare("SELECT * FROM solution_drafts WHERE status='pending' ORDER BY created_at DESC LIMIT 100").all().map((x) => shape(x, mm)).filter(Boolean),
       missing: { count: missing.length, sample: missing.slice(0, 20).map((x) => ({ id: x.id, text: String(parse(x.data).text || '').slice(0, 110), mockName: mm.get(x.mock_id)?.name || 'Question pool', section: x.section })) } });
   });
@@ -71,7 +72,7 @@ export function mountContent({ r, db, now, audit, bad, settings, drafter, cleanQ
     catch (e) { bad(res, e.message, e.status || 502); }
   });
   r.post('/drafts/batch', async (req, res) => {
-    if (!drafter) return bad(res, 'AI drafts are not set up. Add ANTHROPIC_API_KEY to the server settings.', 503);
+    if (!on(drafter)) return bad(res, 'AI drafts are not set up. Add an AI key in Admin > Integrations.', 503);
     const have = new Set(db.prepare("SELECT question_id FROM solution_drafts WHERE status='pending'").all().map((x) => x.question_id));
     const want = Math.max(1, Math.min(10, Number(req.body?.limit) || 5));
     const ids = (Array.isArray(req.body?.ids) ? req.body.ids.map(String).slice(0, want) : db.prepare('SELECT id, data FROM questions').all().filter((x) => !have.has(x.id) && needsDraft(parse(x.data))).slice(0, want).map((x) => x.id));

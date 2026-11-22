@@ -43,9 +43,10 @@ Use the **mockdesk-oneclick** kit. Copy this project's files into its `app/` fol
 | Sign-in log, sign out everyone | Admin > Security |
 | What is connected (email, SMS, WhatsApp, AI), test email | Admin > Integrations |
 | Backups and CSV exports | Admin > Data and backup |
-| Secrets and provider keys (email, SMS, WhatsApp, AI) | Environment variables, see `.env.example` |
+| Keys and connections: email (SMTP), SMS, WhatsApp, AI model (Claude or OpenAI), with test buttons | Admin > Server > Integrations |
+| Sign-in length, code rules, shortest password | Admin > Settings > Site and limits |
 
-Secrets stay in environment variables on purpose, so they are never stored in the database or shown in the browser.
+Keys typed in the admin panel are stored encrypted in the database and are never shown again. The encryption key is a separate file, `data/.mockdesk-key`, next to the database (or set `MOCKDESK_SECRET_KEY`). Keep that file with your backups: a restored database cannot read its saved keys without it. Environment variables still work as a fallback; a value saved in the admin panel wins.
 
 ## Commands
 
