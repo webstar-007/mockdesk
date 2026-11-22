@@ -14,7 +14,8 @@ const STATUS = { not_attempted: ['Not attempted', 'st-none'], in_progress: ['In 
 export default function Dashboard() {
   const { user, config } = useAuth();
   const nav = useNavigate();
-  const exams = config?.exams?.length ? config.exams : EXAMS; const [examPick, setExam] = useState(null); const exam = examPick && exams.some((x) => x.id === examPick) ? examPick : exams[0].id; const [filter, setFilter] = useState('all'); const [allMocks, setMocks] = useState(null); const [stats, setStats] = useState(null); const [hist, setHist] = useState([]); const [err, setErr] = useState(''); const [busy, setBusy] = useState('');
+  const exams = config?.exams?.length ? config.exams : EXAMS; const [examPick, setExam] = useState(null); const exam = examPick && exams.some((x) => x.id === examPick) ? examPick : exams[0].id; const [filter, setFilter] = useState('all'); const [allMocks, setMocks] = useState(null); const [stats, setStats] = useState(null); const [hist, setHist] = useState([]); const [err, setErr] = useState(''); const [busy, setBusy] = useState(''); const [tab, setTabState] = useState(() => { try { return sessionStorage.getItem('md-dash-tab') || 'mocks'; } catch { return 'mocks'; } });
+  const setTab = (t) => { setTabState(t); try { sessionStorage.setItem('md-dash-tab', t); } catch { /* optional */ } };
   useEffect(() => {
     Promise.all([api.get('/mocks'), api.get('/stats'), api.get('/attempts')])
       .then(([m, s, h]) => { setMocks(m.mocks); setStats(s); setHist(h.attempts.filter((a) => a.status === 'submitted')); })
@@ -63,115 +64,114 @@ export default function Dashboard() {
     qs ? ['Computer is qualifying only', `You need ${qs.qualifyingMarks} of ${qs.questions * qs.marksPerQuestion} to qualify and its marks are not added to your total.`] : ['Keep an eye on the clock', 'Aim to finish a first pass with a few minutes spare, then revisit the questions you marked.'],
     ['Review every mock within a day', 'Read the “Common mistake” note even on questions you got right.'],
   ];
+  const bestOf = (m) => m.best ? Math.round(m.best.percentage) : null;
+  const tabs = [['mocks', 'Mocks'], ['progress', 'Progress'], ['practice', 'Practice'], ['guide', 'Guide']];
+  const nextLabel = inProg ? 'Resume test' : done ? 'Start next mock' : 'Start your first mock';
+  const mockAction = (m) => (m.upcoming ? 'Not open yet' : m.locked ? 'Invite to unlock' : m.status === 'in_progress' ? 'Resume' : m.status === 'completed' ? 'Retake' : 'Start');
   return (
-    <div className="dash hm">
-      <nav className="hm-exams" aria-label="Choose exam">
-        {exams.map((x) => <button key={x.id} className={`hm-exam ${exam === x.id ? 'on' : ''}`} aria-pressed={exam === x.id} onClick={() => { setExam(x.id); setFilter('all'); }}>{x.name}</button>)}
-        {exams.length < 2 && <span className="hm-exam soon" aria-label="More exams coming soon">+ More exams soon</span>}
-      </nav>
-      <section className="hm-hero" aria-label="Welcome">
-        <div className="hm-hero-main">
-          <p className="hm-eyebrow">{greet}</p>
-          <h1>{first}, ready for your next mock?</h1>
-          <p className="hm-sub">{done ? `You have completed ${done} of ${mocks.length} mocks.` : `${mocks.length} full-length mocks, from moderate to exam-day hard. Start with Mock 1 to set your baseline.`}{gap != null && (gap > 0 ? ` ${gap} marks to your target of ${user.targetScore}.` : ` You have reached your target of ${user.targetScore}.`)}</p>
-          <ul className="hm-pills" aria-label="Highlights"><li>{mocks.length} full mocks</li><li>{totalQs} questions</li><li>Step-by-step solutions</li>{daysLeft != null && daysLeft >= 0 && <li className="hm-days">{daysLeft === 0 ? 'Exam is today' : `${daysLeft} day${daysLeft === 1 ? '' : 's'} to exam`}</li>}</ul>
-          <div className="hm-cta">
-            {nextMock && <button className="hm-btn hm-btn-light" onClick={() => start(nextMock)}>{inProg ? 'Resume' : done ? 'Attempt next' : 'Start'}: {nextMock.name.replace('CGL Tier-II ', '')} →</button>}
-            {lastDone && <Link className="hm-btn hm-btn-line" to={`/results/${lastDone.id}`}>View last analysis</Link>}
-          </div>
+    <div className="sd">
+      <header className="sd-top">
+        <div>
+          <h1>{greet}, {first}</h1>
+          <p className="muted">{done ? `${done} of ${mocks.length} mocks done` : 'Take a first mock to set your baseline'}{daysLeft != null && daysLeft >= 0 ? ` · ${daysLeft === 0 ? 'exam is today' : `${daysLeft} day${daysLeft === 1 ? '' : 's'} to your exam`}` : ''}</p>
         </div>
-        <div className="hm-rings">
-          {ring(mocks.length ? Math.round((done / mocks.length) * 100) : 0, 'Mocks done', `${done}/${mocks.length}`)}
-          {targetPct != null ? ring(targetPct, 'Of target', `${targetPct}%`) : ring(stats?.completed ? Math.round(stats.avgAccuracy || 0) : 0, 'Accuracy', stats?.completed ? `${num(stats.avgAccuracy)}%` : '–')}
-        </div>
-      </section>
+        {exams.length > 1 && <div className="sd-exams" role="group" aria-label="Choose exam">{exams.map((x) => <button key={x.id} className={exam === x.id ? 'on' : ''} aria-pressed={exam === x.id} onClick={() => { setExam(x.id); setFilter('all'); }}>{x.name}</button>)}</div>}
+      </header>
 
-      <section className="hm-kpis" aria-label="Summary">
-        {[['Tests completed', `${done}`, `of ${mocks.length} mocks`, '✔', 'k-blue'], ['Best score', num(kBest), mine.length ? `out of ${maxMarks}` : 'no attempt yet', '★', 'k-amber'], ['Average score', mine.length ? `${num(kAvg)}%` : '–', mine.length ? 'of total marks (best per mock)' : 'no attempt yet', '∅', 'k-violet'], ['Average accuracy', primary && stats?.completed ? `${num(stats.avgAccuracy)}%` : '–', primary && stats?.completed ? 'of attempted questions' : 'see each analysis', '◎', 'k-green']].map(([l, v, sub, ic, tone]) => (
-          <div className={`hm-kpi ${tone}`} key={l}><i aria-hidden="true">{ic}</i><div><span>{l}</span><strong>{v}</strong><small>{sub}</small></div></div>
-        ))}
-        {primary && stats?.qualifying && <div className="hm-kpi k-teal"><i aria-hidden="true">⌨</i><div><span>Computer qualified</span><strong>{stats.qualifying.passed}/{stats.qualifying.attempts}</strong><small>cut-off {stats.qualifying.qualifyingMarks} of {stats.qualifying.maxMarks}</small></div></div>}
-      </section>
-
-      {!primary ? <section className="ix" aria-label="Your progress"><div className="card"><h3>Your progress in {examName}</h3><p className="muted">{mine.length ? 'Open any finished mock for its full section and topic analysis. Questions you got wrong are collected in your Notebook.' : 'Finish a mock to see your analysis here.'} <Link to="/notebook">Open notebook</Link></p></div></section> : stats?.completed > 0 ? (
-        <section className="ix" aria-label="Your performance cockpit">
-          <div className="hm-head"><h2>Your performance cockpit</h2><span className="muted small">Built from your own attempts</span></div>
-          <div className="ix-grid">
-            <ReadinessGauge r={readiness} />
-            <SkillRadar sections={stats.sections} />
-            <div className="ix-plan"><StudyPlanner stats={stats} nextMock={nextMock} mocksLeft={mocks.filter((m) => m.status === 'not_attempted').length} daysLeft={daysLeft} lastId={lastDone?.id} sectionName={config?.sections[stats.weakest]?.short} /></div>
-            <Trajectory trend={stats.trend} target={user.targetScore} maxMarks={maxMarks} />
-            <div className="ix-card ix-weak"><h3>Weakest topics</h3>
-              {stats.weakTopics?.length ? <ul className="weak-list">{stats.weakTopics.slice(0, 6).map((t) => <li key={t.topic + t.section}><span>{t.topic}<small> · {config?.sections[t.section]?.short}</small></span><b>{t.accuracy}%</b></li>)}</ul> : <p className="muted">No weak topics yet. Great start.</p>}
-              {lastDone && <Link className="hm-more" to={`/review/${lastDone.id}?filter=incorrect`}>Review last mock’s mistakes →</Link>}
+      <section className="sd-next" aria-label="Your next step">
+        {nextMock ? (
+          <div className="sd-next-main">
+            <span className="sd-chip">{inProg ? 'In progress' : done ? 'Up next' : 'Start here'}</span>
+            <h2>{nextMock.name.replace('CGL Tier-II ', '')}</h2>
+            <p className="sd-facts">{nextMock.totalQuestions + (nextMock.qualifying || []).reduce((b, x) => b + x.questions, 0)} questions · {nextMock.totalMarks} marks · {nextMock.totalMinutes} min · {nextMock.difficulty}</p>
+            <div className="sd-cta">
+              <button className="sd-btn sd-btn-pri" onClick={() => start(nextMock)}>{nextLabel}</button>
+              {lastDone && <Link className="sd-btn" to={`/results/${lastDone.id}`}>Last analysis</Link>}
             </div>
-            <div className="ix-full"><ActivityMap stamps={stats.activity} /></div>
           </div>
-        </section>
-      ) : <LockedInsights />}
+        ) : <div className="sd-next-main"><h2>{mocks.length ? 'You have finished every open mock' : `No ${examName} mocks yet`}</h2><p className="sd-facts">{mocks.length ? 'Review your mistakes while new papers are added.' : 'Check back soon.'}</p>{lastDone && <div className="sd-cta"><Link className="sd-btn sd-btn-pri" to={`/results/${lastDone.id}`}>Last analysis</Link></div>}</div>}
+        {mine.length > 0 && <dl className="sd-stats" aria-label="Your numbers">
+          <div><dt>Best score</dt><dd>{kBest != null ? <>{num(kBest)}<small>/{maxMarks}</small></> : '–'}</dd></div>
+          <div><dt>Average</dt><dd>{mine.length ? `${num(kAvg)}%` : '–'}</dd></div>
+          <div><dt>{targetPct != null ? 'Of target' : 'Accuracy'}</dt><dd>{targetPct != null ? `${targetPct}%` : stats?.completed ? `${num(stats.avgAccuracy)}%` : '–'}</dd></div>
+        </dl>}
+      </section>
 
-      <Blueprint config={bpConfig} examName={examName} />
+      <nav className="sd-tabs" role="tablist" aria-label="Dashboard sections">
+        {tabs.map(([k, l]) => <button key={k} role="tab" id={`sd-t-${k}`} aria-selected={tab === k} aria-controls="sd-panel" className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}
+      </nav>
 
-      <PracticeCard />
+      <div id="sd-panel" role="tabpanel" aria-labelledby={`sd-t-${tab}`}>
+        {tab === 'mocks' && (
+          <section aria-label="Full-length mocks">
+            <div className="sd-filters" role="group" aria-label="Filter mocks">
+              {[['all', 'All'], ['not_attempted', 'New'], ['in_progress', 'In progress'], ['completed', 'Done'], ...(counts.live ? [['live', 'Live']] : []), ...(counts.pyq ? [['pyq', 'Past papers']] : [])].map(([k, l]) => <button key={k} className={filter === k ? 'on' : ''} aria-pressed={filter === k} onClick={() => setFilter(k)}>{l}<span>{counts[k] ?? 0}</span></button>)}
+            </div>
+            {shown.length === 0 && <p className="sd-empty muted">{mocks.length === 0 ? `No ${examName} mocks have been published yet. Check back soon.` : 'Nothing in this view yet.'}</p>}
+            <ul className="sd-list">
+              {shown.map((m) => {
+                const i = mocks.indexOf(m); const [label, cls] = STATUS[m.status]; const b = bestOf(m); const isNext = m.id === nextMock?.id;
+                return (
+                  <li key={m.id} className={`sd-row ${m.locked ? 'is-locked' : ''} ${isNext ? 'is-next' : ''}`}>
+                    <span className="sd-num" aria-hidden="true">{i + 1}</span>
+                    <div className="sd-row-main">
+                      <h3>{m.name.replace('CGL Tier-II ', '')}{m.kind === 'pyq' && <span className="sd-tag">Past paper{m.paperYear ? ` ${m.paperYear}` : ''}</span>}{m.live && <span className="sd-tag live">Live</span>}{m.locked && <span className="sd-tag">Locked</span>}</h3>
+                      <p className="sd-meta">{m.totalQuestions + (m.qualifying || []).reduce((x, y) => x + y.questions, 0)} Qs · {m.totalMarks} marks · {m.totalMinutes} min · {m.difficulty}{!m.complete ? ' · still being completed' : ''}</p>
+                      {m.live && <p className="sd-live">{m.live.state === 'upcoming' ? `Opens ${fmtDateTime(m.live.opensAt)}` : m.live.state === 'open' ? `Open until ${fmtDateTime(m.live.closesAt)}. Your first finished attempt counts for rank.` : (m.live.rank ? `You ranked #${m.live.rank} of ${m.live.of}` : 'Window closed. Ranks are final.')}</p>}
+                    </div>
+                    <div className="sd-row-score">{b != null ? <><b>{m.best.score}<small>/{m.totalMarks}</small></b><i className="sd-bar" aria-hidden="true"><u style={{ width: `${Math.min(100, b)}%` }} /></i></> : <span className={`status ${cls}`}>{label}</span>}</div>
+                    <div className="sd-row-act">
+                      <button className={`sd-btn ${m.status === 'completed' ? '' : 'sd-btn-pri'}`} disabled={busy === m.id || m.upcoming} onClick={() => start(m)}>{mockAction(m)}</button>
+                      {m.last && <Link className="sd-link" to={`/results/${m.last.attemptId}`}>Result</Link>}
+                      {m.live && <Link className="sd-link" to={`/live/${m.id}`}>{m.live.state === 'closed' ? 'Leaderboard' : 'Details'}</Link>}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
 
-      <div className="hm-head"><h2>Full-length mocks</h2><span className="muted small">Take them in order for a steady difficulty ramp.</span></div>
-      <div className="hm-filters" role="group" aria-label="Filter mocks">
-        {[['all', 'All'], ['not_attempted', 'Not attempted'], ['in_progress', 'In progress'], ['completed', 'Completed'], ...(counts.live ? [['live', 'Live mocks']] : []), ...(counts.pyq ? [['pyq', 'Previous-year papers']] : [])].map(([k, l]) => <button key={k} className={`hm-filter ${filter === k ? 'on' : ''}`} aria-pressed={filter === k} onClick={() => setFilter(k)}>{l} <b>{counts[k]}</b></button>)}
-      </div>
-      {shown.length === 0 && <p className="hm-empty muted">{mocks.length === 0 ? `No ${examName} mocks have been published yet. Check back soon.` : 'No mocks in this view yet.'}</p>}
-      <section className="hm-mocks">
-        {shown.map((m) => {
-          const i = mocks.indexOf(m);
-          const [label, cls] = STATUS[m.status];
-          const lvl = { easy: 1, moderate: 2, hard: 3 }[m.difficulty] || 2;
-          return (
-            <article key={m.id} className={`hm-mock ${m.locked ? 'is-locked' : ''} ${m.status === 'in_progress' ? 'is-prog' : ''} ${m.id === nextMock?.id ? 'is-next' : ''}`}>
-              <div className="hm-mock-top">
-                <span className="hm-num" aria-hidden="true">{i + 1}</span>
-                <div className="hm-meter" role="img" aria-label={`Difficulty: ${m.difficulty}`}><i className={lvl >= 1 ? 'on' : ''} /><i className={lvl >= 2 ? 'on' : ''} /><i className={lvl >= 3 ? 'on' : ''} /><span className={`diff d-${m.difficulty}`}>{m.difficulty}</span></div>
-                <span className={`status ${cls} ${m.id === nextMock?.id && m.status === 'not_attempted' ? 'st-next' : ''}`}>{m.id === nextMock?.id && m.status === 'not_attempted' ? 'Up next' : label}</span>
+        {tab === 'progress' && (!primary
+          ? <div className="card"><h3>Your progress in {examName}</h3><p className="muted">{mine.length ? 'Open any finished mock for its full section and topic analysis. Questions you got wrong are collected in your Notebook.' : 'Finish a mock to see your analysis here.'} <Link to="/notebook">Open notebook</Link></p></div>
+          : stats?.completed > 0 ? (
+            <div className="ix-grid">
+              <ReadinessGauge r={readiness} />
+              <SkillRadar sections={stats.sections} />
+              <div className="ix-plan"><StudyPlanner stats={stats} nextMock={nextMock} mocksLeft={mocks.filter((m) => m.status === 'not_attempted').length} daysLeft={daysLeft} lastId={lastDone?.id} sectionName={config?.sections[stats.weakest]?.short} /></div>
+              <Trajectory trend={stats.trend} target={user.targetScore} maxMarks={maxMarks} />
+              <div className="ix-card ix-weak"><h3>Weakest topics</h3>
+                {stats.weakTopics?.length ? <ul className="weak-list">{stats.weakTopics.slice(0, 6).map((t) => <li key={t.topic + t.section}><span>{t.topic}<small> · {config?.sections[t.section]?.short}</small></span><b>{t.accuracy}%</b></li>)}</ul> : <p className="muted small">Not enough data yet.</p>}
+                {lastDone && <Link className="hm-more" to={`/review/${lastDone.id}?filter=incorrect`}>Review last mock’s mistakes →</Link>}
               </div>
-              {(m.kind === 'pyq' || m.live) && <p className="hm-badges">{m.kind === 'pyq' && <span className="badge b-pyq">Previous-year paper{m.paperYear ? ` · ${m.paperYear}` : ''}{m.paperLabel ? ` · ${m.paperLabel}` : ''}</span>}{m.live && <span className={`badge b-live l-${m.live.state}`}>{m.live.state === 'open' ? 'Live now' : m.live.state === 'upcoming' ? 'Live mock · upcoming' : 'Live mock · closed'}</span>}</p>}
-              <h3>{m.name.replace('CGL Tier-II ', '')}</h3>
-              <p className="muted">{m.description}</p>
-              <div className="hm-facts"><span><b>{m.totalQuestions + (m.qualifying || []).reduce((b, x) => b + x.questions, 0)}</b> Qs</span><span><b>{m.totalMarks}</b> marks</span><span><b>{m.totalMinutes}</b> min</span></div>
-              {m.best && (
-                <div className="hm-best"><div className="hm-bar" tabIndex={0} {...tip({ t: 'Your best', v: `${m.best.score} / ${m.totalMarks}`, tone: 'good', rows: [['Percentage', `${m.best.percentage}%`], ['Attempts', m.attempts]] })}><i style={{ width: `${Math.max(2, Math.min(100, m.best.percentage))}%` }} /></div><small>Best <strong>{m.best.score}/{m.totalMarks}</strong> ({m.best.percentage}%) · {m.attempts} attempt{m.attempts > 1 ? 's' : ''}</small></div>
+              <div className="ix-full"><ActivityMap stamps={stats.activity} /></div>
+              {examHist.length > 0 && (
+                <div className="ix-full"><h3>Attempt history</h3>
+                  <div className="tbl-wrap card nopad"><table className="dtable hist">
+                    <thead><tr><th>Test</th><th>Date</th><th>Score</th><th>Accuracy</th><th>Computer</th><th>Time</th><th /></tr></thead>
+                    <tbody>{examHist.map((h) => <tr key={h.id}><th scope="row">{h.mockName}</th><td>{fmtDate(h.submittedAt)}</td><td>{h.score}/{h.maxMarks}</td><td>{h.accuracy}%</td><td>{h.qualified === null || h.qualified === undefined ? '–' : <span className={`qchip ${h.qualified ? 'q-pass' : 'q-fail'}`}>{h.qualified ? 'Qualified' : 'Not qualified'}</span>}</td><td>{duration(h.timeTakenSec)}</td><td><Link to={`/results/${h.id}`}>Analysis</Link> · <Link to={`/review/${h.id}`}>Review</Link> · <PdfMenu id={h.id} compact /></td></tr>)}</tbody>
+                  </table></div></div>
               )}
-              {m.live && <p className="hm-live small" role="note">{m.live.state === 'upcoming' ? `Opens ${fmtDateTime(m.live.opensAt)}. Start any time until ${fmtDateTime(m.live.closesAt)}.` : m.live.state === 'open' ? <>Start any time until <b>{fmtDateTime(m.live.closesAt)}</b>. {m.live.taken ? 'Your first finished attempt counts for rank.' : 'Your first finished attempt counts for rank, so give it your best.'}</> : (m.live.rank ? <>You ranked <b>#{m.live.rank}</b> of {m.live.of}.</> : 'The window has closed. Ranks are final.')}</p>}
-              {!m.complete && <p className="small warn-txt">Question bank still being completed.</p>}
-              <footer>
-                <button className="hm-btn hm-btn-solid" disabled={busy === m.id || m.upcoming} onClick={() => start(m)}>{m.upcoming ? 'Not open yet' : m.locked ? 'Invite a friend to unlock' : m.status === 'in_progress' ? 'Resume test' : m.status === 'completed' ? (m.live?.state === 'open' ? 'Retake for practice' : 'Retake') : 'Start test'}</button>
-                {m.live && <Link className="hm-btn hm-btn-ghost" to={`/live/${m.id}`}>{m.live.state === 'closed' ? 'Leaderboard' : 'Live details'}</Link>}
-                {m.last && <Link className="hm-btn hm-btn-ghost" to={`/results/${m.last.attemptId}`}>Last result</Link>}
-              </footer>
-            </article>
-          );
-        })}
-        {filter === 'all' && <div className="hm-soon"><b>More mocks on the way</b><span>New full-length papers are added regularly.</span></div>}
-      </section>
+            </div>
+          ) : <LockedInsights />)}
 
-      {!stats?.completed ? <section className="hm-why" aria-label="Why MockDesk">
-        {[['🖥', 'Real exam interface', 'Sectional timers that lock, the numbered palette, mark-for-review and a server-kept clock, like the actual CBT.'], ['💡', 'Solutions that teach', 'Every question has steps, the common mistake, a concept to revise and why each wrong option fails.'], ['📈', 'Analysis that guides', 'Section strengths, weakest topics, accuracy and time per attempt, so you know what to fix next.']].map(([ic, t, d]) => <div className="hm-why-card" key={t}><i aria-hidden="true">{ic}</i><h3>{t}</h3><p>{d}</p></div>)}
-      </section> : <ToolTiles />}
+        {tab === 'practice' && (
+          <div className="sd-stack"><PracticeCard />{stats?.completed ? <ToolTiles /> : null}</div>
+        )}
 
-      <section className="hm-tips" aria-label="Exam tips">
-        <div className="hm-head"><h2>Exam-day playbook</h2></div>
-        <div className="hm-tip-grid">
-          {tips.map(([t, d], i) => <div className="hm-tip" key={t}><b aria-hidden="true">{['①','②','③','④'][i]}</b><div><h4>{t}</h4><p>{d}</p></div></div>)}
-          {stats?.completed > 0 && stats.weakest && <div className="hm-tip hm-focus"><b>!</b><div><h4>Focus next: {config?.sections[stats.weakest]?.short}</h4><p>Your lowest average section so far{stats.weakTopics?.[0] ? `, with ${stats.weakTopics[0].topic} the weakest topic` : ''}. Revise it before your next mock.</p></div></div>}
-        </div>
-      </section>
-
-      {examHist.length > 0 && (
-        <>
-          <h2>Attempt history</h2>
-          <div className="tbl-wrap card nopad"><table className="dtable hist">
-            <thead><tr><th>Test</th><th>Date</th><th>Score</th><th>Accuracy</th><th>Computer</th><th>Time</th><th /></tr></thead>
-            <tbody>{examHist.map((h) => <tr key={h.id}><th scope="row">{h.mockName}</th><td>{fmtDate(h.submittedAt)}</td><td>{h.score}/{h.maxMarks}</td><td>{h.accuracy}%</td><td>{h.qualified === null || h.qualified === undefined ? '–' : <span className={`qchip ${h.qualified ? 'q-pass' : 'q-fail'}`}>{h.qualified ? 'Qualified' : 'Not qualified'}</span>}</td><td>{duration(h.timeTakenSec)}</td><td><Link to={`/results/${h.id}`}>Analysis</Link> · <Link to={`/review/${h.id}`}>Review</Link> · <PdfMenu id={h.id} compact /></td></tr>)}</tbody>
-          </table></div>
-        </>
-      )}
+        {tab === 'guide' && (
+          <div className="sd-stack">
+            <Blueprint config={bpConfig} examName={examName} />
+            <section className="hm-tips" aria-label="Exam tips">
+              <div className="hm-head"><h2>Exam-day playbook</h2></div>
+              <div className="hm-tip-grid">
+                {tips.map(([t, d], i) => <div className="hm-tip" key={t}><b aria-hidden="true">{['①', '②', '③', '④'][i]}</b><div><h4>{t}</h4><p>{d}</p></div></div>)}
+                {stats?.completed > 0 && stats.weakest && <div className="hm-tip hm-focus"><b>!</b><div><h4>Focus next: {config?.sections[stats.weakest]?.short}</h4><p>Your lowest average section so far{stats.weakTopics?.[0] ? `, with ${stats.weakTopics[0].topic} the weakest topic` : ''}. Revise it before your next mock.</p></div></div>}
+              </div>
+            </section>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

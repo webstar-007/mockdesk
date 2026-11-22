@@ -136,3 +136,6 @@ Staff only see the sections and tabs their access allows. The dashboard's "Needs
 - Secrets are encrypted, never shown again (only the last 4 characters), and **Remove** deletes one. Leave a secret box empty to keep the saved value. A value saved here overrides the server setting; delete it to fall back.
 - The encryption key is `data/.mockdesk-key`. Copy it with your backups (or set `MOCKDESK_SECRET_KEY`). Without it a restored database cannot decrypt saved keys; just type them again.
 - **Settings > Site and limits > Sign-in and security:** stay-signed-in days, short session hours, code validity, codes per hour, wrong tries, shortest password.
+
+## v15: Student dashboard
+Students now see one "next step" card (resume or start the next mock, with their best score, average and accuracy once they have attempts) and four tabs: **Mocks** (a simple list with filters), **Progress** (readiness, skills, study plan, trend, weak topics, streak, attempt history), **Practice** (weak-topic practice sets and tools) and **Guide** (exam pattern and exam-day tips). The last tab is remembered for the session.
