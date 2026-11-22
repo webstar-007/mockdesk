@@ -114,3 +114,19 @@ The admin menu is grouped (Students, Tests and content, Insights, Communicate, S
 - **Security:** sign-in log (90 days) with failures and noisy addresses, admin/staff list, sign out all students or everyone else.
 - **Integrations:** shows email, SMS, WhatsApp, browser push and AI as connected or not, and sends a test email.
 - **Users:** tick students for bulk Suspend, Reactivate or Sign out. **Overview** shows a strip of things that need attention (maintenance on, errors, failed sign-ins, stale backup, paused jobs, low disk).
+
+## v13: Menu map
+The menu has eight sections. Each has tabs at the top. All old page addresses still work.
+
+| Section | Tabs |
+|---|---|
+| Dashboard | Greeting, live count, key numbers with trends, things that need you, quick actions, recent activity |
+| Students | All students, Batches, Cohorts, Import, Referrals |
+| Tests | Mocks, Exams, Live now, Attempts |
+| Questions | Question bank, Import and AI, Quality, Coverage, Student reports (red number = open reports) |
+| Insights | Analytics, Ask your data, Integrity, Copy check |
+| Messages | Send a message, Announcements, Reminder rules |
+| Server | Monitoring, Control room, Security, Integrations, System, Data and backup |
+| Settings | Site, limits and everything else |
+
+Staff only see the sections and tabs their access allows. The dashboard's "Needs your attention" merges server alerts, student reports, suspect questions and inactive students into one list.
